@@ -206,3 +206,31 @@ func TestReportsWithEmptyFindings(t *testing.T) {
 		}
 	})
 }
+
+func TestWriteTextReportWithColor_NoANSIInFileMode(t *testing.T) {
+	result := createDummyResult()
+	var buf bytes.Buffer
+	if err := WriteTextReportWithColor(result, &buf, false); err != nil {
+		t.Fatalf("WriteTextReportWithColor failed: %v", err)
+	}
+	if strings.Contains(buf.String(), "\033[") {
+		t.Errorf("Expected uncolored text report to contain no ANSI escape sequences")
+	}
+}
+
+func TestGenerateReports_ValidationAndDiskOutput(t *testing.T) {
+	result := createDummyResult()
+	tempDir := t.TempDir()
+
+	generated, err := GenerateReports(result, []string{"text", "sarif", "html", "pdf"}, tempDir)
+	if err != nil {
+		t.Fatalf("GenerateReports failed: %v", err)
+	}
+	if len(generated) != 4 {
+		t.Errorf("Expected 4 generated reports, got %d", len(generated))
+	}
+
+	if _, err := GenerateReports(result, []string{"invalid-format"}, tempDir); err == nil {
+		t.Errorf("Expected error for unsupported report format")
+	}
+}

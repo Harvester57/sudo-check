@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sudo-check/pkg/audit"
 	"sudo-check/pkg/report"
@@ -19,6 +20,13 @@ var scanCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		targetPath := args[0]
+
+		// Validate --fail-on flag upfront if provided
+		if strings.TrimSpace(failOnSeverity) != "" {
+			if _, err := audit.ParseSeverity(failOnSeverity); err != nil {
+				return err
+			}
+		}
 
 		// 1. Initialize GTFObins client
 		gtfoClient, err := newGTFOClient()
@@ -97,15 +105,20 @@ var scanCmd = &cobra.Command{
 			return fmt.Errorf("failed to generate reports: %w", err)
 		}
 
-		// Print summary
+		// Print summary in deterministic order
 		if outputDir != "" {
 			fmt.Printf("\nScan completed successfully! Generated reports:\n")
-			for fmtName, path := range generated {
-				fmt.Printf("  - %s: %s\n", strings.ToUpper(fmtName), path)
+			fmtNames := make([]string, 0, len(generated))
+			for fmtName := range generated {
+				fmtNames = append(fmtNames, fmtName)
+			}
+			slices.Sort(fmtNames)
+			for _, fmtName := range fmtNames {
+				fmt.Printf("  - %s: %s\n", strings.ToUpper(fmtName), generated[fmtName])
 			}
 		}
 
-		return nil
+		return checkFailOnThreshold(result)
 	},
 }
 

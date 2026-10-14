@@ -8,7 +8,7 @@ import (
 	"sudo-check/pkg/audit"
 )
 
-// GenerateReports generates all requested reports inside the target outputDir.
+// GenerateReports generates all requested reports inside the target outputDir (or stdout when outputDir is empty).
 // Returns a map of format names to generated file paths.
 func GenerateReports(result *audit.AuditResult, formats []string, outputDir string) (map[string]string, error) {
 	if outputDir != "" {
@@ -18,6 +18,7 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 	}
 
 	generated := make(map[string]string)
+	singleStdoutFormat := outputDir == "" && len(formats) == 1
 
 	for _, format := range formats {
 		format = strings.ToLower(strings.TrimSpace(format))
@@ -25,14 +26,15 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 		case "text", "txt":
 			if outputDir != "" {
 				outPath := filepath.Join(outputDir, "report.txt")
+				// Write plain text without raw ANSI escape sequences when saving to a file.
 				if err := writeToFile(outPath, func(w *os.File) error {
-					return WriteTextReport(result, w)
+					return WriteTextReportWithColor(result, w, false)
 				}); err != nil {
 					return nil, fmt.Errorf("failed to write text report: %w", err)
 				}
 				generated["text"] = outPath
 			} else {
-				// If no output dir, write to stdout
+				// If no output dir, write colorized text to stdout (unless NO_COLOR is set).
 				if err := WriteTextReport(result, os.Stdout); err != nil {
 					return nil, fmt.Errorf("failed to write text report to stdout: %w", err)
 				}
@@ -40,7 +42,13 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 			}
 		case "sarif":
 			if outputDir == "" {
-				continue // SARIF requires an output file/dir
+				if singleStdoutFormat {
+					if err := WriteSarifReport(result, os.Stdout); err != nil {
+						return nil, fmt.Errorf("failed to write SARIF report to stdout: %w", err)
+					}
+					generated["sarif"] = "stdout"
+				}
+				continue
 			}
 			outPath := filepath.Join(outputDir, "report.sarif")
 			if err := writeToFile(outPath, func(w *os.File) error {
@@ -51,6 +59,12 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 			generated["sarif"] = outPath
 		case "html":
 			if outputDir == "" {
+				if singleStdoutFormat {
+					if err := WriteHTMLReport(result, os.Stdout); err != nil {
+						return nil, fmt.Errorf("failed to write HTML report to stdout: %w", err)
+					}
+					generated["html"] = "stdout"
+				}
 				continue
 			}
 			outPath := filepath.Join(outputDir, "report.html")
@@ -62,6 +76,9 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 			generated["html"] = outPath
 		case "pdf":
 			if outputDir == "" {
+				if singleStdoutFormat {
+					return nil, fmt.Errorf("PDF format requires --output-dir (-o) to save the binary PDF file")
+				}
 				continue
 			}
 			outPath := filepath.Join(outputDir, "report.pdf")
@@ -71,6 +88,8 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 				return nil, fmt.Errorf("failed to write PDF report: %w", err)
 			}
 			generated["pdf"] = outPath
+		default:
+			return nil, fmt.Errorf("unsupported report format %q (supported: text, sarif, pdf, html)", format)
 		}
 	}
 

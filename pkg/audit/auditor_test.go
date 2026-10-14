@@ -250,6 +250,79 @@ func TestAuditDefaults(t *testing.T) {
 		assertFindingAbsent(t, findings, "SUDO-DEF-011")
 	})
 
+	t.Run("LastMatchWins_UsePtyDisabledAfterEnabled", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"use_pty": true},
+			{"use_pty": false},
+		}}}}
+		findings := AuditDefaults(policy)
+		assertFindingPresent(t, findings, "SUDO-DEF-003")
+	})
+
+	t.Run("LastMatchWins_UsePtyEnabledAfterDisabled", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"use_pty": false},
+			{"use_pty": true},
+		}}}}
+		findings := AuditDefaults(policy)
+		assertFindingAbsent(t, findings, "SUDO-DEF-003")
+	})
+
+	t.Run("DisabledSecurePathBool", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"secure_path": "/usr/bin:/bin"},
+			{"secure_path": false},
+		}}}}
+		findings := AuditDefaults(policy)
+		assertFindingPresent(t, findings, "SUDO-DEF-001")
+	})
+
+	t.Run("WildcardEnvKeepAndListRemove", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"operation": "list_add", "env_keep": []any{"LD_*"}},
+		}}}}
+		findings := AuditDefaults(policy)
+		assertFindingPresent(t, findings, "SUDO-DEF-004")
+
+		// Verify list_remove removes a previously added dangerous variable
+		policyRemoved := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"operation": "list_add", "env_keep": []any{"LD_PRELOAD"}},
+			{"operation": "list_remove", "env_keep": []any{"LD_PRELOAD"}},
+		}}}}
+		findingsRemoved := AuditDefaults(policyRemoved)
+		assertFindingAbsent(t, findingsRemoved, "SUDO-DEF-004")
+	})
+
+	t.Run("NewDefaultsRules_AuthenticateSetenvFollowTimeout", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{{Options: []Option{
+			{"authenticate": false},
+			{"setenv": true},
+			{"sudoedit_follow": true},
+			{"timestamp_timeout": -1},
+			{"tty_tickets": false},
+		}}}}
+		findings := AuditDefaults(policy)
+		assertFindingPresent(t, findings, "SUDO-DEF-012")
+		assertFindingPresent(t, findings, "SUDO-DEF-013")
+		assertFindingPresent(t, findings, "SUDO-DEF-014")
+		assertFindingPresent(t, findings, "SUDO-DEF-015")
+	})
+
+	t.Run("ScopedBoundDefaults", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{
+			{
+				Binding: []Member{{Username: "alice"}},
+				Options: []Option{
+					{"env_reset": false},
+					{"authenticate": false},
+				},
+			},
+		}}
+		findings := AuditDefaults(policy)
+		assertFindingPresent(t, findings, "SUDO-DEF-011")
+		assertFindingPresent(t, findings, "SUDO-DEF-012")
+	})
+
 	t.Run("CleanPolicy_ZeroFindings", func(t *testing.T) {
 		policy := loadTestPolicy(t, "clean_policy.json")
 		findings := AuditDefaults(policy)
@@ -352,12 +425,13 @@ func TestAuditCommands(t *testing.T) {
 			HostList: []Member{{Hostname: "ALL"}},
 			CmndSpecs: []CmndSpec{{
 				Options:  []Option{{"noexec": true}},
-				Commands: []Member{{Command: "/usr/bin/python3"}},
+				Commands: []Member{{Command: "/usr/bin/python3 \"\""}},
 			}},
 		}}}
 		findings := AuditCommands(policy, gtfoClient)
-		// python3 has shell bypass but noexec should mitigate it
+		// python3 has shell bypass (mitigated by noexec -> SUDO-GTFO-003) and library-load/file-read/file-write (NOT mitigated by noexec -> SUDO-GTFO-001)
 		hasMitigated := false
+		hasUnmitigatedInProcess := false
 		for _, f := range findings {
 			if f.ID == "SUDO-GTFO-003" {
 				hasMitigated = true
@@ -365,10 +439,15 @@ func TestAuditCommands(t *testing.T) {
 					t.Errorf("Expected SUDO-GTFO-003 to be LOW severity (mitigated), got %s", f.Severity)
 				}
 			}
+			if f.ID == "SUDO-GTFO-001" && f.Title == "Dangerous Sudo Binary allowed: python3 (library-load)" {
+				hasUnmitigatedInProcess = true
+			}
 		}
 		if !hasMitigated {
-			// At minimum, there should be some GTFObins finding
-			t.Log("Note: python3 noexec mitigation check — verify GTFObins database has shell/execute function for python3")
+			t.Errorf("Expected python3 shell bypass to be mitigated by noexec (SUDO-GTFO-003)")
+		}
+		if !hasUnmitigatedInProcess {
+			t.Errorf("Expected python3 library-load bypass NOT to be mitigated by noexec (SUDO-GTFO-001)")
 		}
 	})
 
@@ -386,32 +465,36 @@ func TestAuditCommands(t *testing.T) {
 		assertFindingSeverity(t, findings, "SUDO-CMD-005", SeverityLow)
 	})
 
-	t.Run("CommandAliasResolution", func(t *testing.T) {
-		policy := &SudoersPolicy{
-			CommandAliases: map[string][]Member{
-				"EDITORS": {
-					{Command: "/usr/bin/vim"},
-					{Command: "/usr/bin/nano"},
-				},
+	t.Run("CommandAliasResolution_BothSchemas", func(t *testing.T) {
+		// Verify both "cmndalias" (official cvtsudoers_json.c output) and "commandalias" (legacy fixture key)
+		rawJSON := `{
+			"Command_Aliases": {
+				"EDITORS": [
+					{ "command": "/usr/bin/vim" },
+					{ "command": "/usr/bin/nano" }
+				]
 			},
-			UserSpecs: []UserSpec{{
-				UserList: []Member{{Username: "alice"}},
-				HostList: []Member{{Hostname: "ALL"}},
-				CmndSpecs: []CmndSpec{{
-					Commands: []Member{{CommandAlias: "EDITORS"}},
-				}},
-			}},
+			"User_Specs": [{
+				"User_List": [{ "userid": 1000 }],
+				"Host_List": [{ "hostname": "ALL" }],
+				"Cmnd_Specs": [{
+					"Commands": [{ "cmndalias": "EDITORS" }]
+				}]
+			}]
+		}`
+		var policy SudoersPolicy
+		if err := json.Unmarshal([]byte(rawJSON), &policy); err != nil {
+			t.Fatalf("Failed to unmarshal cvtsudoers cmndalias JSON: %v", err)
 		}
-		findings := AuditCommands(policy, gtfoClient)
-		// vim is a known GTFObins binary
+		findings := AuditCommands(&policy, gtfoClient)
 		hasVimGTFO := false
 		for _, f := range findings {
-			if f.Command == "/usr/bin/vim" {
+			if f.Command == "/usr/bin/vim" && f.User == "#1000" {
 				hasVimGTFO = true
 			}
 		}
 		if !hasVimGTFO {
-			t.Error("Expected alias resolution to find vim GTFObins bypass, but no finding for /usr/bin/vim was found")
+			t.Error("Expected official 'cmndalias' resolution and numeric userid (#1000) to find /usr/bin/vim")
 		}
 	})
 
@@ -457,16 +540,49 @@ func TestAuditCommands(t *testing.T) {
 		assertFindingAbsent(t, findings, "SUDO-CMD-006")
 	})
 
-	t.Run("DirectEditorExecution", func(t *testing.T) {
+	t.Run("DirectEditorExecution_And_FalsePositivePrevention", func(t *testing.T) {
 		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
 			UserList: []Member{{Username: "alice"}},
 			HostList: []Member{{Hostname: "ALL"}},
 			CmndSpecs: []CmndSpec{{
-				Commands: []Member{{Command: "/usr/bin/vim"}},
+				Commands: []Member{{Command: "/usr/bin/vim /etc/hosts"}},
 			}},
 		}}}
 		findings := AuditCommands(policy, gtfoClient)
 		assertFindingPresent(t, findings, "SUDO-CMD-007")
+
+		// Non-editor binaries starting with "vi", "edit", or "micro" must NOT trigger SUDO-CMD-007
+		nonEditorPolicy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList: []Member{{Username: "alice"}},
+			HostList: []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{
+				Commands: []Member{
+					{Command: "/usr/bin/virsh list"},
+					{Command: "/usr/sbin/visudo -c"},
+					{Command: "/usr/bin/virt-install --version"},
+					{Command: "/usr/bin/microdnf update"},
+					{Command: "/usr/bin/editcap -v"},
+				},
+			}},
+		}}}
+		nonEditorFindings := AuditCommands(nonEditorPolicy, gtfoClient)
+		assertFindingAbsent(t, nonEditorFindings, "SUDO-CMD-007")
+	})
+
+	t.Run("SetenvFollowAndNegatedRunas", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList: []Member{{Username: "alice"}},
+			HostList: []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{
+				RunasUsers: []Member{{Username: "ALL"}, {Username: "root", Negated: true}},
+				Options:    []Option{{"setenv": true}, {"sudoedit_follow": true}},
+				Commands:   []Member{{Command: "/usr/local/bin/custom-tool --safe"}},
+			}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingPresent(t, findings, "SUDO-CMD-008")
+		assertFindingPresent(t, findings, "SUDO-CMD-009")
+		assertFindingPresent(t, findings, "SUDO-CMD-010")
 	})
 
 	t.Run("CleanPolicy_ZeroFindings", func(t *testing.T) {
@@ -555,9 +671,12 @@ func TestAuditSudoVersion(t *testing.T) {
 		{"CVE-2021-3156_Fixed_18x", "1.8.32", "CVE-2021-3156", false},
 		{"CVE-2021-3156_Vulnerable_19x", "1.9.5p1", "CVE-2021-3156", true},
 		{"CVE-2021-3156_Fixed_19x", "1.9.6", "CVE-2021-3156", false},
+		{"CVE-2023-22809_Vulnerable", "1.9.12p1", "CVE-2023-22809", true},
 		{"CVE-2023-27320_Vulnerable", "1.9.12p1", "CVE-2023-27320", true},
 		{"CVE-2023-27320_Fixed", "1.9.12p2", "CVE-2023-27320", false},
-		{"AllClear_Latest", "1.9.15p5", "CVE-2023-27320", false}, // Also doesn't have 2023-27320
+		{"CVE-2025-32462_Vulnerable", "1.9.17", "CVE-2025-32462", true},
+		{"CVE-2025-32463_Vulnerable", "1.9.17", "CVE-2025-32463", true},
+		{"AllClear_Latest", "1.9.17p1", "CVE-2025-32463", false},
 	}
 
 	for _, tt := range tests {
@@ -613,6 +732,27 @@ func TestCountBySeverity(t *testing.T) {
 	}
 	if counts[SeverityMedium] != 0 {
 		t.Errorf("Expected 0 medium, got %d", counts[SeverityMedium])
+	}
+}
+
+func TestParseSeverityAndHasFindingsAtOrAbove(t *testing.T) {
+	sev, err := ParseSeverity("high")
+	if err != nil || sev != SeverityHigh {
+		t.Fatalf("Expected SeverityHigh, got %v (err: %v)", sev, err)
+	}
+	if _, err := ParseSeverity("unknown"); err == nil {
+		t.Errorf("Expected error for invalid severity string")
+	}
+
+	findings := []Finding{{ID: "1", Severity: SeverityMedium}}
+	if !HasFindingsAtOrAbove(SeverityLow, findings) {
+		t.Errorf("Expected Medium finding to meet Low threshold")
+	}
+	if !HasFindingsAtOrAbove(SeverityMedium, findings) {
+		t.Errorf("Expected Medium finding to meet Medium threshold")
+	}
+	if HasFindingsAtOrAbove(SeverityHigh, findings) {
+		t.Errorf("Expected Medium finding NOT to meet High threshold")
 	}
 }
 

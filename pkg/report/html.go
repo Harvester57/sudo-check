@@ -14,9 +14,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Sudoers Security Audit Report. Identifies security misconfigurations, dangerous defaults, and GTFObins bypass vulnerabilities.">
     <title>Sudoers Audit Report - {{.Hostname}}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Mono&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-gradient-start: #0b0f19;
@@ -25,8 +22,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
             --panel-border: rgba(255, 255, 255, 0.05);
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
-            --font-primary: 'Outfit', sans-serif;
-            --font-code: 'Space Mono', monospace;
+            --font-primary: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-code: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
             --accent-crit: #ff453a;
             --accent-high: #bf5af2;
             --accent-med: #ff9f0a;
@@ -501,8 +498,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 <div class="finding-details-grid">
                     <div class="finding-detail-item"><strong>Source:</strong> Sudoers Policy</div>
                     {{if .User}}<div class="finding-detail-item"><strong>User/Group:</strong> {{.User}}</div>{{end}}
+                    {{if .Runas}}<div class="finding-detail-item"><strong>Runas:</strong> {{.Runas}}</div>{{end}}
                     {{if .Host}}<div class="finding-detail-item"><strong>Host:</strong> {{.Host}}</div>{{end}}
                     {{if .Command}}<div class="finding-detail-item"><strong>Command:</strong> <code>{{.Command}}</code></div>{{end}}
+                    {{if .Context}}<div class="finding-detail-item"><strong>Location:</strong> {{.Context}}</div>{{end}}
                 </div>
                 <p class="finding-desc">{{.Description}}</p>
                 <div class="finding-remediation">

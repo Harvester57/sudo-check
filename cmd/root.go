@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sudo-check/pkg/audit"
 	"sudo-check/pkg/gtfobins"
 
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ var (
 	formats        string
 	gtfoBinsPath   string
 	cvtSudoersPath string
+	failOnSeverity string
 )
 
 var rootCmd = &cobra.Command{
@@ -25,6 +27,8 @@ via the GTFObins database.
 
 It supports scanning pre-converted JSON policies (from cvtsudoers) or running autonomously 
 on target systems using the local cvtsudoers command.`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -40,6 +44,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&formats, "formats", "f", "text,sarif,pdf,html", "Comma-separated list of output formats (text, sarif, pdf, html)")
 	rootCmd.PersistentFlags().StringVar(&gtfoBinsPath, "gtfobins-path", "", "Path to custom gtfobins.json database snapshot")
 	rootCmd.PersistentFlags().StringVar(&cvtSudoersPath, "cvtsudoers-path", "", "Path to custom cvtsudoers binary")
+	rootCmd.PersistentFlags().StringVar(&failOnSeverity, "fail-on", "", "Exit with code 1 if any finding meets or exceeds this severity (critical, high, medium, low, info)")
 }
 
 // getFormatsList returns the slice of formatted outputs selected by the user.
@@ -61,4 +66,20 @@ func newGTFOClient() (*gtfobins.Client, error) {
 		return gtfobins.NewClientFromFile(gtfoBinsPath)
 	}
 	return gtfobins.NewClient()
+}
+
+// checkFailOnThreshold validates and evaluates the optional --fail-on severity threshold.
+// When failOnSeverity is empty (default), it always returns nil to preserve exit code 0.
+func checkFailOnThreshold(result *audit.AuditResult) error {
+	if strings.TrimSpace(failOnSeverity) == "" {
+		return nil
+	}
+	threshold, err := audit.ParseSeverity(failOnSeverity)
+	if err != nil {
+		return err
+	}
+	if result != nil && audit.HasFindingsAtOrAbove(threshold, result.SystemFindings, result.PolicyFindings) {
+		return fmt.Errorf("audit failed: one or more findings met or exceeded the %s severity threshold", threshold)
+	}
+	return nil
 }

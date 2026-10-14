@@ -8,15 +8,15 @@ It scans sudoers policies for dangerous defaults, security misconfigurations, an
 
 ## Features
 
-- **GTFObins Matching**: Identifies binary rules in sudoers matching GTFObins privilege escalation techniques (e.g. spawning a shell, reading/writing files, library loading).
-- **Defaults Auditing**: Audits global configurations such as missing `secure_path`, missing `use_pty` (terminal hijacking protection), dangerous variables added to `env_keep` (like `LD_PRELOAD`, `PYTHONPATH`), and enabling `visiblepw` or `pwfeedback`.
-- **Allowed Commands Analysis**: Flags use of wildcards/globs in paths, negated rules (easily bypassed), and `ALL` wildcards.
-- **System Verification**: Checks the target host's active `sudo` version against CVE ranges (CVE-2019-14287, CVE-2021-3156 "Baron Samedit", and CVE-2023-27320) and validates `/etc/sudoers` file permissions and ownership.
+- **GTFObins Matching**: Identifies binary rules in sudoers matching GTFObins privilege escalation techniques (e.g. spawning a shell, executing commands, reading/writing files, library loading, and inherited capabilities from pagers/editors).
+- **Defaults Auditing**: Audits global and scoped/bound `Defaults` configurations (using sudoers last-match-wins precedence) such as missing/disabled `secure_path`, missing `use_pty` (TIOCSTI terminal hijacking protection), dangerous variables or globs added to `env_keep` (like `LD_*`, `PYTHONPATH`), `visiblepw`, `pwfeedback`, `!authenticate`, `setenv`, `sudoedit_follow`, and weak `timestamp_timeout` / `!tty_tickets`.
+- **Allowed Commands Analysis**: Flags use of wildcards/globs in paths, negated commands and negated `Runas` specifications (`!root`), `ALL` wildcards, `SETENV` / `FOLLOW` tags, direct text editor execution, and missing argument restrictions.
+- **System Verification**: Checks the target host's active `sudo` version against CVE ranges (`CVE-2019-14287`, `CVE-2021-3156` "Baron Samedit", `CVE-2023-22809`, `CVE-2023-27320`, `CVE-2025-32462`, and `CVE-2025-32463`) and validates permissions and ownership of `/etc/sudoers`, `/etc/sudoers.d/*`, the `sudo` SUID binary, and permitted command executables.
 - **Diverse Exporters**:
-  - **Text**: Colorized terminal output.
-  - **SARIF**: Static Analysis Results Interchange Format JSON for CI/CD integrations.
-  - **PDF**: Programmatically formatted grid layout reports.
-  - **HTML**: Premium responsive dark/light mode dashboard with client-side interactive search and severity filters.
+  - **Text**: Colorized terminal output (and clean ANSI-free plaintext when written to `report.txt`).
+  - **SARIF**: Static Analysis Results Interchange Format 2.1.0 JSON with GitHub Code Scanning `security-severity` metadata.
+  - **PDF**: Programmatically formatted grid layout reports with CP1252/UTF-8 character translation.
+  - **HTML**: Self-contained, offline-ready responsive dark/light mode dashboard with client-side interactive search and severity/category filters.
 
 ---
 
@@ -74,12 +74,13 @@ Print the injected build version, commit hash, and build date:
 
 ### Global Flags
 - `-o, --output-dir <string>`: Directory to save generated reports (default is stdout for plaintext).
-- `-f, --formats <string>`: Comma-separated list of report formats (text, sarif, pdf, html) (default: "text,sarif,pdf,html").
+- `-f, --formats <string>`: Comma-separated list of report formats (`text,sarif,pdf,html`) (default: `"text,sarif,pdf,html"`).
+- `--fail-on <string>`: Exit with non-zero code `1` if any finding meets or exceeds this severity (`critical`, `high`, `medium`, `low`, `info`). Defaults to `""` (exit `0`).
 - `--gtfobins-path <string>`: Path to a custom `gtfobins.json` database file.
 - `--cvtsudoers-path <string>`: Path to a custom `cvtsudoers` binary.
 
-### Scan-Specific Flags
-- `--sudoers-file <string>`: Path to target sudoers file (default "/etc/sudoers").
+### System-Specific Flags
+- `--sudoers-file <string>`: Path to target sudoers file (default `"/etc/sudoers"`).
 
 ---
 

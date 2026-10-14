@@ -116,3 +116,32 @@ func TestNewClientFromFile_NotFound(t *testing.T) {
 		t.Errorf("Expected error when loading non-existent file, got nil")
 	}
 }
+
+func TestClient_InheritAndNoExecClassification(t *testing.T) {
+	client, err := NewClient()
+	if err != nil {
+		t.Fatalf("Failed to initialize client: %v", err)
+	}
+
+	bypasses := client.CheckBinary("apt-get")
+	foundInherit := false
+	for _, b := range bypasses {
+		if b.Function == "inherit" && b.InheritedFrom == "less" {
+			foundInherit = true
+			if len(b.InheritedFuncs) == 0 {
+				t.Errorf("Expected apt-get inherit from 'less' to resolve inherited functions")
+			}
+			if !b.IsMitigatedByNoExec() {
+				t.Errorf("Expected 'inherit' function to be classified as mitigated by noexec")
+			}
+		}
+	}
+	if !foundInherit {
+		t.Errorf("Expected apt-get to have an 'inherit' bypass from 'less'")
+	}
+
+	libLoad := SudoBypass{Function: "library-load"}
+	if libLoad.IsMitigatedByNoExec() {
+		t.Errorf("Expected 'library-load' NOT to be mitigated by noexec")
+	}
+}

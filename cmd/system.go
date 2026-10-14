@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sudo-check/pkg/audit"
 	"sudo-check/pkg/cvtsudoers"
@@ -25,6 +26,13 @@ var systemCmd = &cobra.Command{
 converts the active /etc/sudoers policy to JSON, audits it, and audits local sudo version CVEs 
 and file permissions.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Validate --fail-on flag upfront if provided
+		if strings.TrimSpace(failOnSeverity) != "" {
+			if _, err := audit.ParseSeverity(failOnSeverity); err != nil {
+				return err
+			}
+		}
+
 		// 1. Initialize GTFObins client
 		gtfoClient, err := newGTFOClient()
 		if err != nil {
@@ -55,17 +63,27 @@ and file permissions.`,
 		fmt.Println("Performing target system checks...")
 		var systemFindings []audit.Finding
 
-		// Audit file permissions
+		// Audit sudoers file and /etc/sudoers.d permissions
 		permFindings := audit.AuditSudoersPermissions(sudoersFile)
 		systemFindings = append(systemFindings, permFindings...)
 
+		// Resolve sudo binary path dynamically via PATH, falling back to /usr/bin/sudo
+		sudoBinPath := "/usr/bin/sudo"
+		if resolvedSudo, lookErr := exec.LookPath("sudo"); lookErr == nil && resolvedSudo != "" {
+			sudoBinPath = resolvedSudo
+		}
+
 		// Audit sudo binary permissions
-		sudoBinaryFindings := audit.AuditSudoBinaryPermissions("/usr/bin/sudo")
+		sudoBinaryFindings := audit.AuditSudoBinaryPermissions(sudoBinPath)
 		systemFindings = append(systemFindings, sudoBinaryFindings...)
+
+		// Audit permissions of concrete command binaries permitted by the policy
+		cmdPermFindings := audit.AuditAllowedCommandPermissions(policy)
+		systemFindings = append(systemFindings, cmdPermFindings...)
 
 		// Audit sudo version
 		var sudoVersionStr string
-		sudoCmd := exec.Command("sudo", "--version")
+		sudoCmd := exec.Command(sudoBinPath, "--version")
 		var sudoOut bytes.Buffer
 		sudoCmd.Stdout = &sudoOut
 		sudoCmd.Stderr = &sudoOut
@@ -99,15 +117,20 @@ and file permissions.`,
 			return fmt.Errorf("failed to generate reports: %w", err)
 		}
 
-		// Print summary
+		// Print summary in deterministic order
 		if outputDir != "" {
 			fmt.Printf("\nSystem audit completed successfully! Generated reports:\n")
-			for fmtName, path := range generated {
-				fmt.Printf("  - %s: %s\n", strings.ToUpper(fmtName), path)
+			fmtNames := make([]string, 0, len(generated))
+			for fmtName := range generated {
+				fmtNames = append(fmtNames, fmtName)
+			}
+			slices.Sort(fmtNames)
+			for _, fmtName := range fmtNames {
+				fmt.Printf("  - %s: %s\n", strings.ToUpper(fmtName), generated[fmtName])
 			}
 		}
 
-		return nil
+		return checkFailOnThreshold(result)
 	},
 }
 
