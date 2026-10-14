@@ -425,11 +425,11 @@ func TestAuditCommands(t *testing.T) {
 			HostList: []Member{{Hostname: "ALL"}},
 			CmndSpecs: []CmndSpec{{
 				Options:  []Option{{"noexec": true}},
-				Commands: []Member{{Command: "/usr/bin/python3 \"\""}},
+				Commands: []Member{{Command: "/usr/bin/python \"\""}},
 			}},
 		}}}
 		findings := AuditCommands(policy, gtfoClient)
-		// python3 has shell bypass (mitigated by noexec -> SUDO-GTFO-003) and library-load/file-read/file-write (NOT mitigated by noexec -> SUDO-GTFO-001)
+		// python has shell bypass (mitigated by noexec -> SUDO-GTFO-003) and library-load/file-read/file-write (NOT mitigated by noexec -> SUDO-GTFO-001)
 		hasMitigated := false
 		hasUnmitigatedInProcess := false
 		for _, f := range findings {
@@ -439,15 +439,15 @@ func TestAuditCommands(t *testing.T) {
 					t.Errorf("Expected SUDO-GTFO-003 to be LOW severity (mitigated), got %s", f.Severity)
 				}
 			}
-			if f.ID == "SUDO-GTFO-001" && f.Title == "Dangerous Sudo Binary allowed: python3 (library-load)" {
+			if f.ID == "SUDO-GTFO-001" && f.Title == "Dangerous Sudo Binary allowed: python (library-load)" {
 				hasUnmitigatedInProcess = true
 			}
 		}
 		if !hasMitigated {
-			t.Errorf("Expected python3 shell bypass to be mitigated by noexec (SUDO-GTFO-003)")
+			t.Errorf("Expected python shell bypass to be mitigated by noexec (SUDO-GTFO-003)")
 		}
 		if !hasUnmitigatedInProcess {
-			t.Errorf("Expected python3 library-load bypass NOT to be mitigated by noexec (SUDO-GTFO-001)")
+			t.Errorf("Expected python library-load bypass NOT to be mitigated by noexec (SUDO-GTFO-001)")
 		}
 	})
 
