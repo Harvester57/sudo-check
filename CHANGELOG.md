@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-18
+
+### Added
+- Redesigned self-contained HTML report (`pkg/report/html.go`, `pkg/report/reference_data.go`) into a three-tab WAI-ARIA navigation experience (`Audit Report`, `Reference Frameworks`, and `Hardened Reference Template`) with full keyboard support (`ArrowLeft`, `ArrowRight`, `Home`, `End`).
+- **Tab 2 — Reference Frameworks Catalog**: Verbatim requirements, security rationale, required `sudoers` directives, and live deduplicated violation counts across **ANSSI BP-028** (`R38`–`R42`/`R44` in both English and original French), **CIS Linux Benchmark Section 5.2** (`CIS-5.2.1`–`CIS-5.2.7`), **DISA STIG** (`SV-230273`/`SV-230274`/`SV-230275`), and **MITRE ATT&CK** (`T1548.003`), with interactive search/status filtering (`All`, `Violated Only`, `Compliant Only`) and one-click cross-navigation to triggered findings in Tab 1 or baseline sections in Tab 3.
+- **Tab 3 — Hardened Reference Template & Traceability Matrix**: Copy-pasteable, annotated `/etc/sudoers` reference baseline policy (`HardenedSudoersReferencePolicy()`, verified by unit tests to parse cleanly and produce zero findings under `audit.RunAudit`), modular `/etc/sudoers.d/10-app-deploy` drop-in example, hardened root-owned wrapper script pattern (mitigating GTFObins and wildcards via SHA-256 digest pinning), host permission remediation runbook (`SUDO-SYS-PERM-001`–`013`), and a complete 32-rule Traceability Matrix linking every `SUDO-DEF-*`, `SUDO-CMD-*`, `SUDO-GTFO-*`, and `SUDO-SYS-PERM-*` rule to its governing frameworks and hardening directive.
+- Added pre-generated interactive sample HTML report (`docs/example-report.html`) and updated `README.md` documentation.
+
 ## [0.1.0] - 2026-10-17
 
 ### Added
@@ -40,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-format reporting (Text, JSON, SARIF, HTML, and PDF).
 - GitHub Actions CI/CD pipeline with cross-platform binary matrix builds (`linux/amd64`, `linux/arm64`, `windows/amd64`) and CycloneDX SBOM generation.
 
+[0.2.0]: https://github.com/Harvester57/sudo-check/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Harvester57/sudo-check/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/Harvester57/sudo-check/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/Harvester57/sudo-check/releases/tag/v0.0.1
