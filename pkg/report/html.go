@@ -23,7 +23,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
             --font-primary: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            --font-code: 'Space Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            --font-code: 'Space Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
             --accent-crit: #ff453a;
             --accent-high: #bf5af2;
             --accent-med: #ff9f0a;
@@ -332,6 +332,22 @@ const htmlTemplateStr = `<!DOCTYPE html>
             margin-right: 0.5rem;
         }
 
+        .compliance-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .compliance-badge {
+            font-family: var(--font-code);
+            font-size: 0.72rem;
+            padding: 0.2rem 0.55rem;
+            border-radius: 4px;
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.3);
+        }
+
         .finding-desc {
             font-size: 0.95rem;
             color: var(--text-main);
@@ -467,13 +483,21 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 </div>
                 <div class="finding-details-grid">
                     <div class="finding-detail-item"><strong>Source:</strong> System Health Check</div>
-                    {{if .Context}}<div class="finding-detail-item"><strong>Target Path:</strong> {{.Context}}</div>{{end}}
+                    {{if .Context}}<div class="finding-detail-item"><strong>Target Path:</strong> {{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</div>{{end}}
                 </div>
+                {{if .Compliance}}
+                <div class="compliance-tags">
+                    {{range .Compliance}}<span class="compliance-badge">{{.}}</span>{{end}}
+                </div>
+                {{end}}
                 <p class="finding-desc">{{.Description}}</p>
                 <div class="finding-remediation">
                     <div class="remediation-title">Remediation</div>
                     <div class="remediation-content">
-                        {{if hasPrefix .Remediation "Run "}}
+                        {{if .ExploitPoC}}
+                        <p>{{.Remediation}}</p>
+                        <pre><code>{{.ExploitPoC}}</code></pre>
+                        {{else if hasPrefix .Remediation "Run "}}
                         <pre><code>{{.Remediation}}</code></pre>
                         {{else if hasPrefix .Remediation "Upgrade "}}
                         <p>{{.Remediation}}</p>
@@ -498,16 +522,24 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 <div class="finding-details-grid">
                     <div class="finding-detail-item"><strong>Source:</strong> Sudoers Policy</div>
                     {{if .User}}<div class="finding-detail-item"><strong>User/Group:</strong> {{.User}}</div>{{end}}
-                    {{if .Runas}}<div class="finding-detail-item"><strong>Runas:</strong> {{.Runas}}</div>{{end}}
                     {{if .Host}}<div class="finding-detail-item"><strong>Host:</strong> {{.Host}}</div>{{end}}
+                    {{if .Runas}}<div class="finding-detail-item"><strong>RunAs:</strong> {{.Runas}}</div>{{end}}
                     {{if .Command}}<div class="finding-detail-item"><strong>Command:</strong> <code>{{.Command}}</code></div>{{end}}
-                    {{if .Context}}<div class="finding-detail-item"><strong>Location:</strong> {{.Context}}</div>{{end}}
+                    {{if .Context}}<div class="finding-detail-item"><strong>Location:</strong> {{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</div>{{end}}
                 </div>
+                {{if .Compliance}}
+                <div class="compliance-tags">
+                    {{range .Compliance}}<span class="compliance-badge">{{.}}</span>{{end}}
+                </div>
+                {{end}}
                 <p class="finding-desc">{{.Description}}</p>
                 <div class="finding-remediation">
                     <div class="remediation-title">Remediation</div>
                     <div class="remediation-content">
-                        {{if contains .Remediation "Example exploit command:"}}
+                        {{if .ExploitPoC}}
+                        <p>{{.Remediation}}</p>
+                        <pre><code>{{.ExploitPoC}}</code></pre>
+                        {{else if contains .Remediation "Example exploit command:"}}
                         <p>{{preGTFOExploitText .Remediation}}</p>
                         <pre><code>{{gtfoExploitCommand .Remediation}}</code></pre>
                         {{else if contains .Remediation "Defaults "}}
@@ -668,5 +700,16 @@ func WriteHTMLReport(result *audit.AuditResult, w io.Writer) error {
 		return err
 	}
 
-	return t.Execute(w, result)
+	sortedResult := audit.AuditResult{
+		Hostname:       result.Hostname,
+		SudoVersion:    result.SudoVersion,
+		SystemFindings: make([]audit.Finding, len(result.SystemFindings)),
+		PolicyFindings: make([]audit.Finding, len(result.PolicyFindings)),
+	}
+	copy(sortedResult.SystemFindings, result.SystemFindings)
+	copy(sortedResult.PolicyFindings, result.PolicyFindings)
+	audit.SortFindingsBySeverity(sortedResult.SystemFindings)
+	audit.SortFindingsBySeverity(sortedResult.PolicyFindings)
+
+	return t.Execute(w, &sortedResult)
 }

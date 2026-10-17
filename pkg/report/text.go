@@ -8,7 +8,7 @@ import (
 	"sudo-check/pkg/audit"
 )
 
-// ANSI color codes for terminal output.
+// ANSI color codes
 const (
 	colorReset  = "\033[0m"
 	colorRed    = "\033[31m"
@@ -37,38 +37,68 @@ func GetSeverityColor(sev audit.Severity) string {
 	}
 }
 
-// WriteTextReport formats the audit results as human-readable plaintext with ANSI colors
-// (unless the NO_COLOR environment variable is set).
+// WriteTextReport formats the audit results as human-readable plaintext.
+// ANSI colors are enabled unless the NO_COLOR environment variable is non-empty.
 func WriteTextReport(result *audit.AuditResult, w io.Writer) error {
-	useColor := os.Getenv("NO_COLOR") == ""
-	return WriteTextReportWithColor(result, w, useColor)
+	return WriteTextReportWithOptions(result, w, os.Getenv("NO_COLOR") == "")
 }
 
-// WriteTextReportWithColor formats the audit results as human-readable plaintext,
-// optionally emitting ANSI escape codes when useColor is true (for terminal stdout)
-// or plain uncolored text when useColor is false (for report.txt files on disk).
-func WriteTextReportWithColor(result *audit.AuditResult, w io.Writer, useColor bool) error {
+// WriteTextReportWithOptions formats the audit results as human-readable plaintext
+// with explicit control over whether ANSI escape codes are emitted.
+func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor bool) error {
 	var sb strings.Builder
 
-	cBold, cReset, cRed, cPurple, cYellow, cCyan, cBlue := "", "", "", "", "", "", ""
+	bold, reset, red, purple, yellow, cyan, blue := "", "", "", "", "", "", ""
 	if useColor {
-		cBold = colorBold
-		cReset = colorReset
-		cRed = colorRed
-		cPurple = colorPurple
-		cYellow = colorYellow
-		cCyan = colorCyan
-		cBlue = colorBlue
+		bold = colorBold
+		reset = colorReset
+		red = colorRed
+		purple = colorPurple
+		yellow = colorYellow
+		cyan = colorCyan
+		blue = colorBlue
 	}
 
-	sevColor := func(sev audit.Severity) string {
-		if !useColor {
-			return ""
+	writeFinding := func(f audit.Finding) {
+		sevColor := ""
+		if useColor {
+			sevColor = GetSeverityColor(f.Severity)
 		}
-		return GetSeverityColor(sev)
+		sb.WriteString(fmt.Sprintf("[%s%s%s] %s: %s\n", sevColor, f.Severity, reset, f.ID, f.Title))
+		if f.User != "" {
+			sb.WriteString(fmt.Sprintf("  User/Group:  %s\n", f.User))
+		}
+		if f.Host != "" {
+			sb.WriteString(fmt.Sprintf("  Host:        %s\n", f.Host))
+		}
+		if f.Runas != "" {
+			sb.WriteString(fmt.Sprintf("  RunAs:       %s\n", f.Runas))
+		}
+		if f.Command != "" {
+			sb.WriteString(fmt.Sprintf("  Command:     %s\n", f.Command))
+		}
+		if f.Context != "" {
+			loc := f.Context
+			if f.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", f.Context, f.Line)
+			}
+			sb.WriteString(fmt.Sprintf("  Location:    %s\n", loc))
+		} else if f.Line > 0 {
+			sb.WriteString(fmt.Sprintf("  Location:    line %d\n", f.Line))
+		}
+		if len(f.Compliance) > 0 {
+			sb.WriteString(fmt.Sprintf("  Compliance:  %s\n", strings.Join(f.Compliance, ", ")))
+		}
+		sb.WriteString(fmt.Sprintf("  Description: %s\n", f.Description))
+		sb.WriteString(fmt.Sprintf("  Remediation: %s\n", f.Remediation))
+		if f.ExploitPoC != "" {
+			indented := strings.ReplaceAll(strings.TrimSpace(f.ExploitPoC), "\n", "\n    ")
+			sb.WriteString(fmt.Sprintf("  Reference:\n    %s\n", indented))
+		}
+		sb.WriteString("\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("%s=== SUDOERS SECURITY AUDIT REPORT ===%s\n\n", cBold, cReset))
+	sb.WriteString(fmt.Sprintf("%s=== SUDOERS SECURITY AUDIT REPORT ===%s\n\n", bold, reset))
 	if result.Hostname != "" {
 		sb.WriteString(fmt.Sprintf("Target Hostname: %s\n", result.Hostname))
 	}
@@ -83,15 +113,9 @@ func WriteTextReportWithColor(result *audit.AuditResult, w io.Writer, useColor b
 		copy(sorted, result.SystemFindings)
 		audit.SortFindingsBySeverity(sorted)
 
-		sb.WriteString(fmt.Sprintf("%s--- System Vulnerability Findings (%d) ---%s\n", cBold, len(sorted), cReset))
+		sb.WriteString(fmt.Sprintf("%s--- System Vulnerability Findings (%d) ---%s\n", bold, len(sorted), reset))
 		for _, f := range sorted {
-			color := sevColor(f.Severity)
-			sb.WriteString(fmt.Sprintf("[%s%s%s] %s: %s\n", color, f.Severity, cReset, f.ID, f.Title))
-			if f.Context != "" {
-				sb.WriteString(fmt.Sprintf("  Location:    %s\n", f.Context))
-			}
-			sb.WriteString(fmt.Sprintf("  Description: %s\n", f.Description))
-			sb.WriteString(fmt.Sprintf("  Remediation: %s\n\n", f.Remediation))
+			writeFinding(f)
 		}
 	}
 
@@ -101,24 +125,9 @@ func WriteTextReportWithColor(result *audit.AuditResult, w io.Writer, useColor b
 		copy(sorted, result.PolicyFindings)
 		audit.SortFindingsBySeverity(sorted)
 
-		sb.WriteString(fmt.Sprintf("%s--- Sudoers Policy Findings (%d) ---%s\n", cBold, len(sorted), cReset))
+		sb.WriteString(fmt.Sprintf("%s--- Sudoers Policy Findings (%d) ---%s\n", bold, len(sorted), reset))
 		for _, f := range sorted {
-			color := sevColor(f.Severity)
-			sb.WriteString(fmt.Sprintf("[%s%s%s] %s: %s\n", color, f.Severity, cReset, f.ID, f.Title))
-			if f.User != "" {
-				sb.WriteString(fmt.Sprintf("  User/Group:  %s\n", f.User))
-			}
-			if f.Runas != "" {
-				sb.WriteString(fmt.Sprintf("  Runas:       %s\n", f.Runas))
-			}
-			if f.Command != "" {
-				sb.WriteString(fmt.Sprintf("  Command:     %s\n", f.Command))
-			}
-			if f.Context != "" {
-				sb.WriteString(fmt.Sprintf("  Location:    %s\n", f.Context))
-			}
-			sb.WriteString(fmt.Sprintf("  Description: %s\n", f.Description))
-			sb.WriteString(fmt.Sprintf("  Remediation: %s\n\n", f.Remediation))
+			writeFinding(f)
 		}
 	} else {
 		sb.WriteString("No sudoers policy misconfigurations found.\n")
@@ -127,12 +136,12 @@ func WriteTextReportWithColor(result *audit.AuditResult, w io.Writer, useColor b
 	// Print Summary stats using helper
 	counts := audit.CountBySeverity(result.SystemFindings, result.PolicyFindings)
 
-	sb.WriteString(fmt.Sprintf("%s--- Summary of Findings ---%s\n", cBold, cReset))
-	sb.WriteString(fmt.Sprintf("  %sCRITICAL:%s %d\n", cRed, cReset, counts[audit.SeverityCritical]))
-	sb.WriteString(fmt.Sprintf("  %sHIGH:%s     %d\n", cPurple, cReset, counts[audit.SeverityHigh]))
-	sb.WriteString(fmt.Sprintf("  %sMEDIUM:%s   %d\n", cYellow, cReset, counts[audit.SeverityMedium]))
-	sb.WriteString(fmt.Sprintf("  %sLOW:%s      %d\n", cCyan, cReset, counts[audit.SeverityLow]))
-	sb.WriteString(fmt.Sprintf("  %sINFO:%s     %d\n", cBlue, cReset, counts[audit.SeverityInfo]))
+	sb.WriteString(fmt.Sprintf("%s--- Summary of Findings ---%s\n", bold, reset))
+	sb.WriteString(fmt.Sprintf("  %sCRITICAL:%s %d\n", red, reset, counts[audit.SeverityCritical]))
+	sb.WriteString(fmt.Sprintf("  %sHIGH:%s     %d\n", purple, reset, counts[audit.SeverityHigh]))
+	sb.WriteString(fmt.Sprintf("  %sMEDIUM:%s   %d\n", yellow, reset, counts[audit.SeverityMedium]))
+	sb.WriteString(fmt.Sprintf("  %sLOW:%s      %d\n", cyan, reset, counts[audit.SeverityLow]))
+	sb.WriteString(fmt.Sprintf("  %sINFO:%s     %d\n", blue, reset, counts[audit.SeverityInfo]))
 	sb.WriteString("\n")
 
 	_, err := io.WriteString(w, sb.String())

@@ -45,7 +45,7 @@ func NewWrapper(customPath string) (*Wrapper, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("cvtsudoers binary not found in PATH or standard paths; please install sudo/cvtsudoers or specify its path using --cvtsudoers")
+	return nil, fmt.Errorf("cvtsudoers binary not found in PATH or standard paths; please install sudo/cvtsudoers or specify its path using --cvtsudoers-path")
 }
 
 // ConvertPolicy runs cvtsudoers on a given sudoers file and returns the parsed SudoersPolicy.

@@ -7,7 +7,7 @@ import (
 	"sudo-check/pkg/audit"
 )
 
-// SarifLog represents the root of a SARIF 2.1.0 log file.
+// SarifLog represents the root of a SARIF log file
 type SarifLog struct {
 	Schema  string     `json:"$schema"`
 	Version string     `json:"version"`
@@ -31,15 +31,14 @@ type SarifDriver struct {
 }
 
 type SarifRule struct {
-	ID               string                `json:"id"`
-	ShortDescription SarifMultiformatText  `json:"shortDescription"`
-	FullDescription  *SarifMultiformatText `json:"fullDescription,omitempty"`
-	Help             *SarifMultiformatText `json:"help,omitempty"`
-	Properties       *SarifRuleProperties  `json:"properties,omitempty"`
+	ID               string               `json:"id"`
+	ShortDescription SarifMultiformatText `json:"shortDescription"`
+	Properties       *SarifRuleProperties `json:"properties,omitempty"`
 }
 
 type SarifRuleProperties struct {
-	SecuritySeverity string `json:"security-severity,omitempty"`
+	SecuritySeverity string   `json:"security-severity,omitempty"`
+	Tags             []string `json:"tags,omitempty"`
 }
 
 type SarifMultiformatText struct {
@@ -59,13 +58,52 @@ type SarifLocation struct {
 
 type SarifPhysicalLocation struct {
 	ArtifactLocation SarifArtifactLocation `json:"artifactLocation"`
+	Region           *SarifRegion          `json:"region,omitempty"`
+}
+
+type SarifRegion struct {
+	StartLine int `json:"startLine,omitempty"`
 }
 
 type SarifArtifactLocation struct {
 	URI string `json:"uri"`
 }
 
-// WriteSarifReport formats the audit results as a SARIF 2.1.0 JSON report.
+// canonicalRuleTitles maps rule IDs that can have dynamic or variant per-finding titles
+// to a stable, canonical rule description for the SARIF driver.rules table.
+var canonicalRuleTitles = map[string]string{
+	"SUDO-GTFO-001": "Permitted Binary in GTFObins Catalog",
+	"SUDO-GTFO-002": "Passwordless Permitted Binary in GTFObins Catalog",
+	"SUDO-GTFO-003": "Mitigated Permitted Binary in GTFObins Catalog",
+	"SUDO-DEF-001":  "Missing or Empty secure_path Configuration",
+	"SUDO-DEF-009":  "Missing or Weak umask Configuration",
+}
+
+func canonicalRuleTitle(f audit.Finding) string {
+	if title, ok := canonicalRuleTitles[f.ID]; ok {
+		return title
+	}
+	return f.Title
+}
+
+func mapSecuritySeverity(sev audit.Severity) string {
+	switch sev {
+	case audit.SeverityCritical:
+		return "9.0"
+	case audit.SeverityHigh:
+		return "7.5"
+	case audit.SeverityMedium:
+		return "5.0"
+	case audit.SeverityLow:
+		return "2.5"
+	case audit.SeverityInfo:
+		return "1.0"
+	default:
+		return "1.0"
+	}
+}
+
+// WriteSarifReport formats the audit results as a SARIF JSON report.
 func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 	log := SarifLog{
 		Schema:  "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -79,7 +117,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 		Rules:          []SarifRule{},
 	}
 
-	// Map audit severity to SARIF result level.
+	// Helper to map audit severity to SARIF levels
 	mapLevel := func(sev audit.Severity) string {
 		switch sev {
 		case audit.SeverityCritical, audit.SeverityHigh:
@@ -93,22 +131,6 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 		}
 	}
 
-	// Map audit severity to CVSS-equivalent security-severity string for GitHub Code Scanning.
-	mapSecuritySeverity := func(sev audit.Severity) string {
-		switch sev {
-		case audit.SeverityCritical:
-			return "9.0"
-		case audit.SeverityHigh:
-			return "7.5"
-		case audit.SeverityMedium:
-			return "5.0"
-		case audit.SeverityLow:
-			return "3.0"
-		default:
-			return "1.0"
-		}
-	}
-
 	results := []SarifResult{}
 	ruleMap := make(map[string]bool)
 
@@ -116,20 +138,21 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 		for _, f := range findings {
 			// Add rule metadata if not already present
 			if !ruleMap[f.ID] {
+				props := &SarifRuleProperties{
+					SecuritySeverity: mapSecuritySeverity(f.Severity),
+				}
+				if len(f.Compliance) > 0 {
+					tags := make([]string, len(f.Compliance))
+					copy(tags, f.Compliance)
+					props.Tags = tags
+				}
+
 				driver.Rules = append(driver.Rules, SarifRule{
 					ID: f.ID,
 					ShortDescription: SarifMultiformatText{
-						Text: f.Title,
+						Text: canonicalRuleTitle(f),
 					},
-					FullDescription: &SarifMultiformatText{
-						Text: f.Description,
-					},
-					Help: &SarifMultiformatText{
-						Text: f.Remediation,
-					},
-					Properties: &SarifRuleProperties{
-						SecuritySeverity: mapSecuritySeverity(f.Severity),
-					},
+					Properties: props,
 				})
 				ruleMap[f.ID] = true
 			}
@@ -137,6 +160,17 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 			uri := defaultURI
 			if f.Context != "" {
 				uri = f.Context
+			}
+
+			physLoc := SarifPhysicalLocation{
+				ArtifactLocation: SarifArtifactLocation{
+					URI: uri,
+				},
+			}
+			if f.Line > 0 {
+				physLoc.Region = &SarifRegion{
+					StartLine: f.Line,
+				}
 			}
 
 			results = append(results, SarifResult{
@@ -147,11 +181,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 				Level: mapLevel(f.Severity),
 				Locations: []SarifLocation{
 					{
-						PhysicalLocation: SarifPhysicalLocation{
-							ArtifactLocation: SarifArtifactLocation{
-								URI: uri,
-							},
-						},
+						PhysicalLocation: physLoc,
 					},
 				},
 			})
@@ -159,7 +189,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 	}
 
 	addFindings(result.SystemFindings, "system-configuration")
-	addFindings(result.PolicyFindings, "/etc/sudoers")
+	addFindings(result.PolicyFindings, "file:///etc/sudoers")
 
 	run := SarifRun{
 		Tool: SarifTool{

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sudo-check/pkg/audit"
+	"sudo-check/pkg/parser"
 	"sudo-check/pkg/report"
 
 	"github.com/spf13/cobra"
@@ -15,18 +16,17 @@ import (
 
 var scanCmd = &cobra.Command{
 	Use:   "scan <file-or-dir>",
-	Short: "Scan pre-converted JSON sudoers policies",
-	Long:  `Scan a single cvtsudoers JSON policy file or a directory of multiple JSON policy files.`,
+	Short: "Scan raw sudoers files or pre-converted JSON sudoers policies",
+	Long:  `Scan a single raw sudoers configuration file, a pre-converted cvtsudoers JSON policy file, or a directory of policy files.`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		targetPath := args[0]
-
-		// Validate --fail-on flag upfront if provided
-		if strings.TrimSpace(failOnSeverity) != "" {
-			if _, err := audit.ParseSeverity(failOnSeverity); err != nil {
-				return err
+		if strings.TrimSpace(failOn) != "" {
+			if _, ok := audit.ParseSeverity(failOn); !ok {
+				return fmt.Errorf("invalid --fail-on severity %q (valid values: CRITICAL, HIGH, MEDIUM, LOW, INFO)", failOn)
 			}
 		}
+
+		targetPath := args[0]
 
 		// 1. Initialize GTFObins client
 		gtfoClient, err := newGTFOClient()
@@ -42,24 +42,55 @@ var scanCmd = &cobra.Command{
 		}
 
 		if info.IsDir() {
+			var jsonFiles []string
+			var sudoersFiles []string
+			rootSudoers := filepath.Join(targetPath, "sudoers")
+			hasRootSudoers := false
+			if st, err := os.Stat(rootSudoers); err == nil && !st.IsDir() {
+				hasRootSudoers = true
+			}
+
 			err = filepath.Walk(targetPath, func(path string, fInfo os.FileInfo, walkErr error) error {
 				if walkErr != nil {
 					return walkErr
 				}
-				if !fInfo.IsDir() && strings.HasSuffix(strings.ToLower(fInfo.Name()), ".json") {
-					files = append(files, path)
+				if fInfo.IsDir() {
+					return nil
+				}
+				name := fInfo.Name()
+				lower := strings.ToLower(name)
+				if strings.HasSuffix(lower, ".json") {
+					jsonFiles = append(jsonFiles, path)
+					return nil
+				}
+				if strings.HasPrefix(name, ".") || strings.HasSuffix(name, "~") || strings.HasSuffix(lower, ".bak") || strings.HasSuffix(lower, ".swp") {
+					return nil
+				}
+				if strings.HasSuffix(lower, ".sudoers") || name == "sudoers" || !strings.Contains(name, ".") {
+					sudoersFiles = append(sudoersFiles, path)
 				}
 				return nil
 			})
 			if err != nil {
 				return fmt.Errorf("failed to walk directory: %w", err)
 			}
+
+			if len(jsonFiles) > 0 && hasRootSudoers {
+				files = append(files, jsonFiles...)
+				files = append(files, rootSudoers)
+			} else if len(jsonFiles) > 0 {
+				files = jsonFiles
+			} else if hasRootSudoers {
+				files = []string{rootSudoers}
+			} else {
+				files = sudoersFiles
+			}
 		} else {
 			files = append(files, targetPath)
 		}
 
 		if len(files) == 0 {
-			return fmt.Errorf("no JSON policy files found at target path: %s", targetPath)
+			return fmt.Errorf("no sudoers or JSON policy files found at target path: %s", targetPath)
 		}
 
 		// 3. Parse and audit policies
@@ -70,18 +101,37 @@ var scanCmd = &cobra.Command{
 				return fmt.Errorf("failed to read file %s: %w", file, err)
 			}
 
-			var policy audit.SudoersPolicy
-			if err := json.Unmarshal(data, &policy); err != nil {
-				if info.IsDir() {
-					fmt.Fprintf(os.Stderr, "Warning: failed to parse JSON in %s (skipping): %v\n", file, err)
-					continue
-				} else {
+			var policy *audit.SudoersPolicy
+			if parser.IsJSONPolicy(data) {
+				var p audit.SudoersPolicy
+				if err := json.Unmarshal(data, &p); err != nil {
+					if info.IsDir() {
+						fmt.Fprintf(os.Stderr, "Warning: failed to parse JSON in %s (skipping): %v\n", file, err)
+						continue
+					}
 					return fmt.Errorf("failed to parse JSON in %s: %w", file, err)
 				}
+				policy = &p
+			} else if strings.HasSuffix(strings.ToLower(file), ".json") {
+				if info.IsDir() {
+					fmt.Fprintf(os.Stderr, "Warning: failed to parse JSON in %s (skipping): invalid JSON policy\n", file)
+					continue
+				}
+				return fmt.Errorf("failed to parse JSON in %s: invalid JSON policy", file)
+			} else {
+				p, err := parser.ParseFile(file)
+				if err != nil {
+					if info.IsDir() {
+						fmt.Fprintf(os.Stderr, "Warning: failed to parse sudoers file %s (skipping): %v\n", file, err)
+						continue
+					}
+					return fmt.Errorf("failed to parse sudoers file %s: %w", file, err)
+				}
+				policy = p
 			}
 
 			// Run audit and set context as the file name
-			findings := audit.RunAudit(&policy, gtfoClient)
+			findings := audit.RunAudit(policy, gtfoClient)
 			for i := range findings {
 				if findings[i].Context == "" {
 					findings[i].Context = filepath.ToSlash(file)
@@ -100,25 +150,25 @@ var scanCmd = &cobra.Command{
 			result.Hostname = hostname
 		}
 
-		generated, err := report.GenerateReports(result, getFormatsList(), outputDir)
+		generated, err := report.GenerateReportsWithOptions(result, getFormatsList(), outputDir, noColor)
 		if err != nil {
 			return fmt.Errorf("failed to generate reports: %w", err)
 		}
 
 		// Print summary in deterministic order
 		if outputDir != "" {
-			fmt.Printf("\nScan completed successfully! Generated reports:\n")
+			fmt.Fprintf(os.Stderr, "\nScan completed successfully! Generated reports:\n")
 			fmtNames := make([]string, 0, len(generated))
 			for fmtName := range generated {
 				fmtNames = append(fmtNames, fmtName)
 			}
 			slices.Sort(fmtNames)
 			for _, fmtName := range fmtNames {
-				fmt.Printf("  - %s: %s\n", strings.ToUpper(fmtName), generated[fmtName])
+				fmt.Fprintf(os.Stderr, "  - %s: %s\n", strings.ToUpper(fmtName), generated[fmtName])
 			}
 		}
 
-		return checkFailOnThreshold(result)
+		return checkFailOn(result)
 	},
 }
 

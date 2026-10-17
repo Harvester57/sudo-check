@@ -15,10 +15,16 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(20, 20, 20)
 	pdf.SetAutoPageBreak(true, 20)
-
-	// fpdf's built-in core fonts (Helvetica, Courier) use CP1252 encoding rather than UTF-8.
-	// Using UnicodeTranslatorFromDescriptor prevents UTF-8 punctuation/symbols from rendering as mojibake.
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
+	replacer := strings.NewReplacer(
+		"→", "->",
+		"←", "<-",
+		"≥", ">=",
+		"≤", "<=",
+	)
+	cleanText := func(s string) string {
+		return tr(replacer.Replace(s))
+	}
 
 	// Set Footer
 	pdf.SetFooterFunc(func() {
@@ -52,7 +58,7 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	if host == "" {
 		host = "localhost"
 	}
-	pdf.Cell(0, 8, tr(host))
+	pdf.Cell(0, 8, cleanText(host))
 	pdf.Ln(6)
 
 	pdf.SetFont("Helvetica", "B", 10)
@@ -64,7 +70,7 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	if sudoVer == "" {
 		sudoVer = "Unknown"
 	}
-	pdf.Cell(0, 8, tr(sudoVer))
+	pdf.Cell(0, 8, cleanText(sudoVer))
 	pdf.Ln(6)
 
 	pdf.SetFont("Helvetica", "B", 10)
@@ -181,39 +187,55 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 		pdf.SetX(26)
 		pdf.SetFont("Helvetica", "B", 10)
 		pdf.SetTextColor(30, 41, 59)
-		headerTitle := fmt.Sprintf("%s: %s", f.ID, f.Title)
-		if len(headerTitle) > 68 {
-			headerTitle = headerTitle[:65] + "..."
+		titleRunes := []rune(fmt.Sprintf("%s: %s", f.ID, f.Title))
+		cleanTitle := cleanText(string(titleRunes))
+		if pdf.GetStringWidth(cleanTitle) > 120.0 {
+			for len(titleRunes) > 0 && pdf.GetStringWidth(cleanText(string(titleRunes)+"...")) > 120.0 {
+				titleRunes = titleRunes[:len(titleRunes)-1]
+			}
+			cleanTitle = cleanText(string(titleRunes) + "...")
 		}
-		pdf.Cell(120, 8, tr(headerTitle))
+		pdf.Cell(120, 8, cleanTitle)
 
 		// Severity label right aligned
 		pdf.SetX(150)
 		pdf.SetFont("Helvetica", "B", 9)
 		pdf.SetTextColor(r, g, b)
-		pdf.CellFormat(35, 8, string(f.Severity), "", 0, "R", false, 0, "")
+		pdf.CellFormat(35, 8, cleanText(string(f.Severity)), "", 0, "R", false, 0, "")
 		pdf.Ln(11)
 
-		// Metadata Info if available (User, Runas, Command, Host, Context)
+		// Metadata Info if available (User, Host, Runas, Command, Context, Compliance)
 		var metaParts []string
 		if f.User != "" {
 			metaParts = append(metaParts, fmt.Sprintf("User/Group: %s", f.User))
 		}
+		if f.Host != "" {
+			metaParts = append(metaParts, fmt.Sprintf("Host: %s", f.Host))
+		}
 		if f.Runas != "" {
-			metaParts = append(metaParts, fmt.Sprintf("Runas: %s", f.Runas))
+			metaParts = append(metaParts, fmt.Sprintf("RunAs: %s", f.Runas))
 		}
 		if f.Command != "" {
 			metaParts = append(metaParts, fmt.Sprintf("Command: %s", f.Command))
 		}
 		if f.Context != "" {
-			metaParts = append(metaParts, fmt.Sprintf("Location: %s", f.Context))
+			loc := f.Context
+			if f.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", f.Context, f.Line)
+			}
+			metaParts = append(metaParts, fmt.Sprintf("Location: %s", loc))
+		} else if f.Line > 0 {
+			metaParts = append(metaParts, fmt.Sprintf("Location: line %d", f.Line))
+		}
+		if len(f.Compliance) > 0 {
+			metaParts = append(metaParts, fmt.Sprintf("Compliance: %s", strings.Join(f.Compliance, ", ")))
 		}
 
 		if len(metaParts) > 0 {
 			pdf.SetFont("Helvetica", "B", 8)
 			pdf.SetTextColor(100, 116, 139)
 			pdf.SetX(20)
-			pdf.MultiCell(170, 5, tr(strings.Join(metaParts, "  |  ")), "", "L", false)
+			pdf.MultiCell(170, 5, cleanText(strings.Join(metaParts, "  |  ")), "", "L", false)
 			pdf.Ln(2)
 		}
 
@@ -221,7 +243,7 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 		pdf.SetFont("Helvetica", "", 9.5)
 		pdf.SetTextColor(51, 65, 85)
 		pdf.SetX(20)
-		pdf.MultiCell(170, 5, tr(f.Description), "", "L", false)
+		pdf.MultiCell(170, 5, cleanText(f.Description), "", "L", false)
 		pdf.Ln(2)
 
 		// Remediation Block
@@ -234,42 +256,37 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 		pdf.SetFont("Helvetica", "", 9)
 		pdf.SetTextColor(30, 41, 59)
 
-		// If remediation has code block format, print it in a shaded Courier box
-		isCodeBlock := strings.Contains(f.Remediation, "Defaults ") || strings.HasPrefix(f.Remediation, "Run ") || strings.Contains(f.Remediation, "Example exploit command:")
-
-		if isCodeBlock {
-			exploitText := f.Remediation
-			exploitCmd := ""
-			if strings.Contains(f.Remediation, "Example exploit command:\n") {
-				parts := strings.Split(f.Remediation, "Example exploit command:\n")
-				exploitText = parts[0]
-				if len(parts) > 1 {
-					exploitCmd = parts[1]
-				}
+		exploitText := f.Remediation
+		exploitCmd := f.ExploitPoC
+		if exploitCmd == "" && strings.Contains(f.Remediation, "Example exploit command:\n") {
+			parts := strings.Split(f.Remediation, "Example exploit command:\n")
+			exploitText = parts[0]
+			if len(parts) > 1 {
+				exploitCmd = parts[1]
 			}
+		}
 
+		if exploitCmd != "" {
 			pdf.SetX(20)
-			pdf.MultiCell(170, 5, tr(exploitText), "", "L", false)
+			pdf.MultiCell(170, 5, cleanText(exploitText), "", "L", false)
 			pdf.Ln(2)
 
-			if exploitCmd != "" {
-				pdf.SetFillColor(241, 245, 249) // Light grey
-				pdf.SetFont("Courier", "", 8.5)
-				pdf.SetTextColor(16, 185, 129)
-				pdf.SetX(20)
-				pdf.MultiCell(170, 5, tr(exploitCmd), "1", "L", true)
-				pdf.Ln(2)
-			} else if strings.Contains(f.Remediation, "Defaults ") {
-				pdf.SetFillColor(241, 245, 249)
-				pdf.SetFont("Courier", "", 8.5)
-				pdf.SetTextColor(16, 185, 129)
-				pdf.SetX(20)
-				pdf.MultiCell(170, 5, tr(f.Remediation), "1", "L", true)
-				pdf.Ln(2)
-			}
+			pdf.SetFillColor(241, 245, 249) // Light grey
+			pdf.SetFont("Courier", "", 8.5)
+			pdf.SetTextColor(16, 185, 129)
+			pdf.SetX(20)
+			pdf.MultiCell(170, 5, cleanText(exploitCmd), "1", "L", true)
+			pdf.Ln(2)
+		} else if strings.Contains(f.Remediation, "Defaults ") || strings.HasPrefix(f.Remediation, "Run ") {
+			pdf.SetFillColor(241, 245, 249)
+			pdf.SetFont("Courier", "", 8.5)
+			pdf.SetTextColor(16, 185, 129)
+			pdf.SetX(20)
+			pdf.MultiCell(170, 5, cleanText(f.Remediation), "1", "L", true)
+			pdf.Ln(2)
 		} else {
 			pdf.SetX(20)
-			pdf.MultiCell(170, 5, tr(f.Remediation), "", "L", false)
+			pdf.MultiCell(170, 5, cleanText(f.Remediation), "", "L", false)
 			pdf.Ln(2)
 		}
 

@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -36,36 +37,39 @@ func (s Severity) Order() int {
 	}
 }
 
-// ParseSeverity converts a case-insensitive severity string into a valid Severity constant.
-func ParseSeverity(s string) (Severity, error) {
+// ParseSeverity parses a case-insensitive severity string into a Severity constant.
+func ParseSeverity(s string) (Severity, bool) {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "CRITICAL", "CRIT":
-		return SeverityCritical, nil
+		return SeverityCritical, true
 	case "HIGH":
-		return SeverityHigh, nil
+		return SeverityHigh, true
 	case "MEDIUM", "MED":
-		return SeverityMedium, nil
+		return SeverityMedium, true
 	case "LOW":
-		return SeverityLow, nil
+		return SeverityLow, true
 	case "INFO", "INFORMATIONAL":
-		return SeverityInfo, nil
+		return SeverityInfo, true
 	default:
-		return "", fmt.Errorf("invalid severity %q (expected one of: critical, high, medium, low, info)", s)
+		return "", false
 	}
 }
 
 // Finding represents a single security issue identified in the audit.
 type Finding struct {
-	ID          string   `json:"id"`              // Unique identifier for the finding type (e.g. SUDO-001)
-	Title       string   `json:"title"`           // Short summary
-	Description string   `json:"description"`     // Detailed explanation
-	Severity    Severity `json:"severity"`        // CRITICAL, HIGH, etc.
-	User        string   `json:"user"`            // Affected user/group (if command spec check)
-	Runas       string   `json:"runas,omitempty"` // Target runas user/group (if command spec check)
-	Host        string   `json:"host"`            // Affected host (if command spec check)
-	Command     string   `json:"command"`         // Command path involved (if command spec check)
-	Context     string   `json:"context"`         // Location/file/line information if available
-	Remediation string   `json:"remediation"`     // How to fix the finding
+	ID          string   `json:"id"`                    // Unique identifier for the finding type (e.g. SUDO-001)
+	Title       string   `json:"title"`                 // Short summary
+	Description string   `json:"description"`           // Detailed explanation
+	Severity    Severity `json:"severity"`              // CRITICAL, HIGH, etc.
+	User        string   `json:"user,omitempty"`        // Affected user/group (if command spec check)
+	Host        string   `json:"host,omitempty"`        // Affected host (if command spec check)
+	Runas       string   `json:"runas,omitempty"`       // Target runas user/group (if command spec check)
+	Command     string   `json:"command,omitempty"`     // Command path involved (if command spec check)
+	Context     string   `json:"context,omitempty"`     // Location/file information if available
+	Line        int      `json:"line,omitempty"`        // Line number in source policy if available
+	Remediation string   `json:"remediation"`           // How to fix the finding
+	ExploitPoC  string   `json:"exploit_poc,omitempty"` // Reference command illustrating the capability
+	Compliance  []string `json:"compliance,omitempty"`  // Compliance references (e.g. ANSSI-BP-028, CIS)
 }
 
 // CountBySeverity returns a map of severity levels to their counts across one or more finding slices.
@@ -85,13 +89,12 @@ func CountBySeverity(findingSlices ...[]Finding) map[Severity]int {
 	return counts
 }
 
-// HasFindingsAtOrAbove returns true if any finding across the provided slices has a severity
-// greater than or equal to the specified threshold (e.g., threshold HIGH matches HIGH and CRITICAL).
-func HasFindingsAtOrAbove(threshold Severity, findingSlices ...[]Finding) bool {
-	maxOrder := threshold.Order()
+// HasSeverityAtLeast checks whether any finding in the slices meets or exceeds minSeverity.
+func HasSeverityAtLeast(minSeverity Severity, findingSlices ...[]Finding) bool {
+	threshold := minSeverity.Order()
 	for _, findings := range findingSlices {
 		for _, f := range findings {
-			if f.Severity.Order() <= maxOrder {
+			if f.Severity.Order() <= threshold {
 				return true
 			}
 		}
@@ -106,53 +109,109 @@ func SortFindingsBySeverity(findings []Finding) {
 	})
 }
 
-// Member represents a user, host, runas user, runas group, or command member.
-// Since cvtsudoers represents members as objects like {"username": "name"}, {"userid": 1000},
-// {"usergroup": "group"}, {"cmndalias": "ALIAS"}, or {"command": "path"}, we define a unified
-// structure covering all fields emitted by cvtsudoers_json.c.
-type Member struct {
-	Username     string `json:"username,omitempty"`
-	UserID       *int   `json:"userid,omitempty"`
-	Usergroup    string `json:"usergroup,omitempty"`
-	UserGID      *int   `json:"usergid,omitempty"`
-	NonUnixGroup string `json:"nonunixgroup,omitempty"`
-	NonUnixGID   *int   `json:"nonunixgid,omitempty"`
-	Netgroup     string `json:"netgroup,omitempty"`
-	Hostname     string `json:"hostname,omitempty"`
-	NetworkAddr  string `json:"networkaddr,omitempty"`
-	Command      string `json:"command,omitempty"`
-	// cvtsudoers emits "cmndalias" for command alias references (see cvtsudoers_json.c).
-	// We also retain "commandalias" for backward compatibility with hand-written JSON fixtures.
-	CmndAlias    string `json:"cmndalias,omitempty"`
-	CommandAlias string `json:"commandalias,omitempty"`
-	UserAlias    string `json:"useralias,omitempty"`
-	RunasAlias   string `json:"runasalias,omitempty"`
-	HostAlias    string `json:"hostalias,omitempty"`
-	Negated      bool   `json:"negated,omitempty"`
-	// Optional command digest fields emitted by cvtsudoers (can be a string or []string in JSON).
-	SHA224 any `json:"sha224,omitempty"`
-	SHA256 any `json:"sha256,omitempty"`
-	SHA384 any `json:"sha384,omitempty"`
-	SHA512 any `json:"sha512,omitempty"`
-}
+// DigestList represents one or more cryptographic digests in cvtsudoers JSON,
+// which cvtsudoers serializes as a single string (when 1 digest is present) or a string slice (when >1).
+type DigestList []string
 
-// GetCommandAlias returns the command alias name whether populated via "cmndalias" or "commandalias".
-func (m Member) GetCommandAlias() string {
-	if m.CmndAlias != "" {
-		return m.CmndAlias
+// UnmarshalJSON decodes either a single JSON string or a JSON array of strings.
+func (d *DigestList) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		if single != "" {
+			*d = DigestList{single}
+		} else {
+			*d = nil
+		}
+		return nil
 	}
-	return m.CommandAlias
+	var slice []string
+	if err := json.Unmarshal(data, &slice); err != nil {
+		return err
+	}
+	*d = DigestList(slice)
+	return nil
 }
 
-// HasDigest returns true if the command member has a cryptographic digest pinned in sudoers.
-func (m Member) HasDigest() bool {
-	return m.SHA224 != nil || m.SHA256 != nil || m.SHA384 != nil || m.SHA512 != nil
+// MarshalJSON encodes a single-element DigestList as a JSON string and multiple elements as an array,
+// matching the cvtsudoers JSON format.
+func (d DigestList) MarshalJSON() ([]byte, error) {
+	if len(d) == 1 {
+		return json.Marshal(d[0])
+	}
+	return json.Marshal([]string(d))
 }
 
-// GetName returns the human-readable principal, host, alias, or command string of the member.
-func (m Member) GetName() string {
+// Member represents a user, host, runas user, runas group, or command member.
+// Since cvtsudoers represents members as objects like {"username": "name"}, {"userid": 0},
+// {"usergroup": "group"}, {"cmndalias": "ALIAS"}, or {"command": "path"}, this struct covers all variants.
+type Member struct {
+	Username     string     `json:"username,omitempty"`
+	UserID       *int       `json:"userid,omitempty"`
+	Usergroup    string     `json:"usergroup,omitempty"`
+	UserGID      *int       `json:"usergid,omitempty"`
+	NonUnixGroup string     `json:"nonunixgroup,omitempty"`
+	NonUnixGID   *int       `json:"nonunixgid,omitempty"`
+	Netgroup     string     `json:"netgroup,omitempty"`
+	Hostname     string     `json:"hostname,omitempty"`
+	NetworkAddr  string     `json:"networkaddr,omitempty"`
+	Command      string     `json:"command,omitempty"`
+	CommandAlias string     `json:"cmndalias,omitempty"`
+	LegacyAlias  string     `json:"commandalias,omitempty"`
+	UserAlias    string     `json:"useralias,omitempty"`
+	RunasAlias   string     `json:"runasalias,omitempty"`
+	HostAlias    string     `json:"hostalias,omitempty"`
+	Negated      bool       `json:"negated,omitempty"`
+	SHA224       DigestList `json:"sha224,omitempty"`
+	SHA256       DigestList `json:"sha256,omitempty"`
+	SHA384       DigestList `json:"sha384,omitempty"`
+	SHA512       DigestList `json:"sha512,omitempty"`
+	Myself       bool       `json:"-"`
+	Line         int        `json:"-"`
+}
+
+// UnmarshalJSON handles both standard cvtsudoers keys ("cmndalias", empty "username" for MYSELF)
+// and legacy test fixture keys ("commandalias").
+func (m *Member) UnmarshalJSON(data []byte) error {
+	type rawMember Member
+	var raw rawMember
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*m = Member(raw)
+	if m.CommandAlias == "" && m.LegacyAlias != "" {
+		m.CommandAlias = m.LegacyAlias
+	}
+	m.LegacyAlias = ""
+
+	// Detect {"username": ""} which cvtsudoers emits for MYSELF
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawMap); err == nil {
+		if uRaw, ok := rawMap["username"]; ok {
+			var uStr string
+			if json.Unmarshal(uRaw, &uStr) == nil && uStr == "" {
+				m.Myself = true
+			}
+		}
+	}
+	return nil
+}
+
+// HasDigests returns true if at least one cryptographic digest is attached to this member.
+func (m Member) HasDigests() bool {
+	return len(m.SHA224) > 0 || len(m.SHA256) > 0 || len(m.SHA384) > 0 || len(m.SHA512) > 0
+}
+
+// HasWeakDigestOnly returns true if the member uses SHA-224 without any stronger digest.
+func (m Member) HasWeakDigestOnly() bool {
+	return len(m.SHA224) > 0 && len(m.SHA256) == 0 && len(m.SHA384) == 0 && len(m.SHA512) == 0
+}
+
+func (m Member) rawName() string {
 	if m.Username != "" {
 		return m.Username
+	}
+	if m.Myself {
+		return "MYSELF"
 	}
 	if m.UserID != nil {
 		return fmt.Sprintf("#%d", *m.UserID)
@@ -181,8 +240,11 @@ func (m Member) GetName() string {
 	if m.Command != "" {
 		return m.Command
 	}
-	if alias := m.GetCommandAlias(); alias != "" {
-		return alias
+	if m.CommandAlias != "" {
+		return m.CommandAlias
+	}
+	if m.LegacyAlias != "" {
+		return m.LegacyAlias
 	}
 	if m.UserAlias != "" {
 		return m.UserAlias
@@ -196,7 +258,19 @@ func (m Member) GetName() string {
 	return ""
 }
 
-// Option represents a generic key-value flag, string/numeric default, or list operation.
+// GetName returns the formatted representation of the member, including a leading "!" if negated.
+func (m Member) GetName() string {
+	name := m.rawName()
+	if name == "" {
+		return ""
+	}
+	if m.Negated {
+		return "!" + name
+	}
+	return name
+}
+
+// Option represents a generic key-value flag or string default, or list operation.
 type Option map[string]any
 
 // CmndSpec contains the configuration of a command execution permission.
@@ -212,12 +286,14 @@ type UserSpec struct {
 	UserList  []Member   `json:"User_List"`
 	HostList  []Member   `json:"Host_List"`
 	CmndSpecs []CmndSpec `json:"Cmnd_Specs"`
+	Line      int        `json:"-"`
 }
 
 // DefaultBinding defines options bound to specific users, groups, hosts, or commands.
 type DefaultBinding struct {
 	Binding []Member `json:"Binding,omitempty"`
 	Options []Option `json:"Options"`
+	Line    int      `json:"-"`
 }
 
 // SudoersPolicy represents the parsed JSON structure of a sudoers policy.

@@ -19,7 +19,8 @@ const (
 )
 
 var (
-	dbOutputPath string
+	dbOutputPath        string
+	gtfoBinsDownloadURL = gtfoBinsURL
 )
 
 var updateDbCmd = &cobra.Command{
@@ -27,10 +28,10 @@ var updateDbCmd = &cobra.Command{
 	Short: "Fetch and update the GTFObins database",
 	Long:  `Downloads the latest database JSON from gtfobins.org/api.json and saves it to a file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Printf("Fetching latest GTFObins database from %s...\n", gtfoBinsURL)
+		fmt.Printf("Fetching latest GTFObins database from %s...\n", gtfoBinsDownloadURL)
 
 		client := &http.Client{Timeout: downloadTimeout}
-		resp, err := client.Get(gtfoBinsURL)
+		resp, err := client.Get(gtfoBinsDownloadURL)
 		if err != nil {
 			return fmt.Errorf("failed to fetch database: %w", err)
 		}

@@ -6,30 +6,34 @@ Welcome! This repository contains `sudo-check`, a security audit utility for sud
 
 ## 1. Project Overview & Architecture
 
-`sudo-check` is designed to be a standalone, self-contained binary. It checks parsed sudoers files (represented in the `cvtsudoers` JSON schema) for security weaknesses, dangerous defaults, and GTFObins bypasses.
+`sudo-check` is designed to be a standalone, self-contained binary. It checks raw `sudoers` configuration files (via `pkg/parser`) or pre-converted `cvtsudoers` JSON policies for security weaknesses, dangerous defaults, and GTFObins bypasses.
 
 ### Package Structure
 - **`cmd/`**: Cobra command specifications.
-  - [root.go](cmd/root.go): Common persistent flags (e.g., `--output-dir`, `--formats`, `--gtfobins-path`, `--cvtsudoers-path`).
-  - [scan.go](cmd/scan.go): Command to parse and scan JSON policy files or folders.
-  - [system.go](cmd/system.go): Command to run autonomously on a live host by calling `cvtsudoers` and checking local versions/permissions.
+  - [root.go](cmd/root.go): Common persistent flags (`--output-dir`, `--formats`, `--fail-on`, `--no-color`, `--gtfobins-path`, `--cvtsudoers-path`).
+  - [scan.go](cmd/scan.go): Command to parse and scan raw `sudoers` files, `sudoers.d` directories, or `cvtsudoers` JSON policy files/directories.
+  - [system.go](cmd/system.go): Command to run autonomously on a live host (calling `cvtsudoers` or falling back to `pkg/parser`) and checking local versions and file/binary permissions.
   - [update_db.go](cmd/update_db.go): Helper command to download fresh GTFObins catalog dumps.
   - [version.go](cmd/version.go): Command to print the build version, commit, and date injected via ldflags.
+- **`pkg/parser/`**:
+  - [parser.go](pkg/parser/parser.go): Native Go `sudoers` parser supporting `#include`/`#includedir` (`@include`/`@includedir`), global and scoped `Defaults`, `User_Alias`/`Runas_Alias`/`Host_Alias`/`Cmnd_Alias`, `User_Spec` rules, tags, digests, and source line tracking.
 - **`pkg/gtfobins/`**:
-  - [client.go](pkg/gtfobins/client.go): Loads the embedded GTFObins snapshot (`database.json` via `go:embed`) or external file. Performs matching and handles GTFObins alias redirection (e.g. mapping `awk` to `mawk`).
+  - [client.go](pkg/gtfobins/client.go): Loads the embedded GTFObins snapshot (`database.json` via `go:embed`) or external file. Normalizes versioned/variant binary names, resolves alias and `inherit` (`from`) chains, and consolidates findings per `(binary, function)`.
 - **`pkg/audit/`**:
   - [auditor.go](pkg/audit/auditor.go): Combines defaults and command audits.
-  - [rules_defaults.go](pkg/audit/rules_defaults.go): Audits global defaults (e.g. `secure_path`, `use_pty`, preserved variables in `env_keep` like `LD_PRELOAD`, `visiblepw`).
-  - [rules_commands.go](pkg/audit/rules_commands.go): Audits user command lists against GTFObins, dangerous wildcards, and negated commands. Adjusts severity if mitigations like `noexec` are detected.
-  - [rules_system.go](pkg/audit/rules_system.go): Audits target system file permissions and compares the local `sudo --version` against CVE version ranges.
+  - [types.go](pkg/audit/types.go): Data structures for `SudoersPolicy`, `Finding`, `Severity`, `Member`, and `DigestList`.
+  - [rules_defaults.go](pkg/audit/rules_defaults.go): Audits global and scoped defaults using last-match-wins reduction (`SUDO-DEF-001` through `SUDO-DEF-016`).
+  - [rules_commands.go](pkg/audit/rules_commands.go): Expands aliases and audits user command rules against GTFObins, wildcards, negations, argument restrictions, `sudoedit` targets, writable paths, per-rule tags, and digests (`SUDO-CMD-001` through `SUDO-CMD-012`, `SUDO-GTFO-001` through `SUDO-GTFO-003`).
+  - [rules_system.go](pkg/audit/rules_system.go): Audits target system file/directory/binary permissions and compares `sudo --version` against CVE ranges.
 - **`pkg/cvtsudoers/`**:
   - [wrapper.go](pkg/cvtsudoers/wrapper.go): Finds and runs `cvtsudoers` with flags `-e -f json`.
 - **`pkg/report/`**:
   - [formatter.go](pkg/report/formatter.go): Report coordinator.
-  - [text.go](pkg/report/text.go): Plaintext terminal reporter using ANSI colors.
-  - [sarif.go](pkg/report/sarif.go): Exporter for Static Analysis Results Interchange Format.
+  - [text.go](pkg/report/text.go): Plaintext terminal and file reporter with optional ANSI color support.
+  - [json.go](pkg/report/json.go): Structured JSON exporter.
+  - [sarif.go](pkg/report/sarif.go): Exporter for Static Analysis Results Interchange Format v2.1.0.
   - [pdf.go](pkg/report/pdf.go): Programmatic PDF builder using `github.com/go-pdf/fpdf`.
-  - [html.go](pkg/report/html.go): Premium self-contained HTML report with dark/light modes and client-side filtering.
+  - [html.go](pkg/report/html.go): Offline-safe self-contained HTML report with dark/light modes and client-side filtering.
 
 ---
 
@@ -50,6 +54,7 @@ Build the binary locally using:
 ```powershell
 $env:CGO_ENABLED=0; go build -ldflags="-s -w" -trimpath -o sudo-check.exe
 ```
+(Remove `sudo-check.exe` after verification if it was built only for testing so the working tree stays clean.)
 
 ### Running Tests & CI Checks
 To ensure the CI build will pass, agents must run the following checks locally:
@@ -60,6 +65,12 @@ To ensure the CI build will pass, agents must run the following checks locally:
    go test -v -race -cover ./...
    ```
    *(Note: If running on a Windows system without Cgo/gcc configured, run without `-race`: `go test -v -cover ./...`)*
+   To generate and inspect a coverage profile in PowerShell, quote the flag to prevent PowerShell from splitting on `.`:
+   ```powershell
+   go test "-coverprofile=coverage.out" ./...
+   go tool cover "-func=coverage.out"
+   Remove-Item -Force coverage.out
+   ```
 
 2. **Static Analysis**:
    Run `go vet` to catch common mistakes:
@@ -86,4 +97,15 @@ To ensure the CI build will pass, agents must run the following checks locally:
 
 **CRITICAL RULE**: Agents MUST run all unit tests and verify they pass after making any changes to the codebase. Ensure all tests pass, `go vet ./...` succeeds, code is properly formatted via `gofmt`, and modules are tidy before proposing any updates or completing the task.
 
+---
 
+## 3. Domain & Schema Invariants
+
+- **Parser Oracle Parity (`pkg/parser`)**: `TestOracleComparisonWithCvtsudoers` in [parser_test.go](pkg/parser/parser_test.go) compares `parser.ParseString` against `cvtsudoers -f json` (invoked directly on Unix or via `wsl /usr/bin/cvtsudoers` on Windows). Any changes to `pkg/parser/` or `pkg/audit/types.go` must maintain parity with `cvtsudoers` JSON output and `audit.RunAudit` findings.
+- **`cvtsudoers` JSON Schema Quirks**:
+  - `Cmnd_Spec.Options` is a JSON array of single-key option objects (`[]audit.Option`), not a single JSON object.
+  - `Digest_Spec` hash fields (`sha224`, `sha256`, `sha384`, `sha512`) use `audit.DigestList` to unmarshal both single strings and string arrays.
+  - `Member` command alias references must support both `"cmndalias"` (emitted by `cvtsudoers` 1.9+) and `"commandalias"`.
+- **Audit Semantics**:
+  - `Defaults` options must be evaluated sequentially using last-match-wins semantics (`list_assign`, `list_add`, `list_remove`, and `!flag` resets).
+  - GTFObins findings are consolidated to **one finding per `(rule, binary, function)`**, and `noexec` only mitigates `shell` and `command` functions (never `library-load`, `file-read`, `file-write`, `suid`, `sudo`, or `capabilities`).

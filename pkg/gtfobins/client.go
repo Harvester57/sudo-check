@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"slices"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -22,8 +24,8 @@ type ContextDetails struct {
 type Exploit struct {
 	Code     string         `json:"code"`
 	Comment  string         `json:"comment,omitempty"`
-	From     string         `json:"from,omitempty"` // Target binary name when function is "inherit"
-	Contexts map[string]any `json:"contexts"`       // e.g., "sudo": null or "sudo": {"code": "..."}
+	Contexts map[string]any `json:"contexts"` // e.g., "sudo": null or "sudo": {"code": "..."}
+	From     string         `json:"from,omitempty"`
 }
 
 // Executable contains the set of functions/exploits mapped to this binary.
@@ -66,118 +68,330 @@ func NewClientFromFile(path string) (*Client, error) {
 
 // SudoBypass represents a found bypass method for an executable.
 type SudoBypass struct {
-	Function       string   // e.g. "shell", "command", "file-read", "file-write", "inherit"
-	Code           string   // The payload command
-	Comment        string   // Exploitation comment
-	InheritedFrom  string   // Populated when Function == "inherit" (e.g. "less", "vi")
-	InheritedFuncs []string // Sudo capabilities inherited from InheritedFrom
+	Function      string // e.g. "shell", "file-read", "file-write"
+	Code          string // The payload command
+	Comment       string // Exploitation comment
+	InheritedFrom string // Optional source binary name when resolved via "inherit"
 }
 
-// IsMitigatedByNoExec returns true if this bypass relies on spawning a child process
-// (execve/system/popen) and is therefore mitigated when sudo's NOEXEC option is active.
-// Note: "library-load", "file-read", "file-write", "privilege-escalation", "upload", and "download"
-// occur in-process without spawning a child executable and are NOT mitigated by NOEXEC.
-func (b SudoBypass) IsMitigatedByNoExec() bool {
-	switch b.Function {
-	case "shell", "command", "reverse-shell", "bind-shell", "execute", "inherit":
-		return true
-	default:
-		return false
+const (
+	maxAliasDepth   = 5
+	maxInheritDepth = 5
+)
+
+var (
+	// versionSuffixRegex matches trailing version numbers such as python3, python3.11, php8.2, perl5.34, gcc-12, node18.
+	versionSuffixRegex = regexp.MustCompile(`^([a-zA-Z][a-zA-Z0-9_+]+?)[-._]?[0-9]+(?:\.[0-9]+)*$`)
+
+	// distroVariantRegex matches distribution alternative suffixes such as vim.basic, vim.tiny, nc.openbsd.
+	distroVariantRegex = regexp.MustCompile(`^([a-zA-Z0-9_-]+)\.[a-zA-Z][a-zA-Z0-9_-]*$`)
+
+	// binaryVariants maps common distribution alternative names to canonical GTFObins binary names.
+	binaryVariants = map[string]string{
+		"vim.basic":      "vim",
+		"vim.tiny":       "vim",
+		"vim.nox":        "vim",
+		"vim.gtk":        "vim",
+		"vim.gtk3":       "vim",
+		"vim.athena":     "vim",
+		"nvim":           "vim",
+		"neovim":         "vim",
+		"rvim":           "vim",
+		"rview":          "vim",
+		"view":           "vim",
+		"vimdiff":        "vim",
+		"gawk":           "awk",
+		"nawk":           "awk",
+		"original-awk":   "awk",
+		"mawk":           "awk",
+		"nc.openbsd":     "nc",
+		"nc.traditional": "nc",
+		"netcat":         "nc",
+		"ncat":           "nc",
+		"pnetcat":        "nc",
+		"bat":            "batcat",
+		"egrep":          "grep",
+		"fgrep":          "grep",
+		"rgrep":          "grep",
+		"pypy":           "python",
+		"pypy3":          "python",
+		"ipython":        "python",
+		"ipython3":       "python",
+		"ash":            "sh",
+		"dash":           "sh",
+		"mksh":           "ksh",
+		"ksh93":          "ksh",
+		"pdksh":          "ksh",
+		"clang":          "gcc",
+		"clang++":        "gcc",
+		"cc":             "gcc",
+		"c++":            "gcc",
+		"g++":            "gcc",
 	}
+)
+
+// NormalizeBinaryName returns candidate GTFObins binary names in priority order.
+// It always starts with the exact binary name, followed by distribution variant mappings
+// and version-stripped base names.
+func NormalizeBinaryName(name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+
+	var candidates []string
+	seen := make(map[string]bool)
+	addCandidate := func(s string) {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			candidates = append(candidates, s)
+		}
+	}
+
+	addCandidate(name)
+
+	base := filepath.Base(name)
+	addCandidate(base)
+
+	if mapped, ok := binaryVariants[base]; ok {
+		addCandidate(mapped)
+	}
+
+	if m := versionSuffixRegex.FindStringSubmatch(base); len(m) == 2 {
+		stripped := strings.TrimRight(m[1], "-._")
+		addCandidate(stripped)
+		if mapped, ok := binaryVariants[stripped]; ok {
+			addCandidate(mapped)
+		}
+	}
+
+	if m := distroVariantRegex.FindStringSubmatch(base); len(m) == 2 {
+		stripped := m[1]
+		addCandidate(stripped)
+		if mapped, ok := binaryVariants[stripped]; ok {
+			addCandidate(mapped)
+		}
+	}
+
+	return candidates
 }
 
 // CheckBinary checks if a binary exists in GTFObins and has any sudo bypass techniques.
-// Returns a deterministically ordered list of bypass methods or nil if not vulnerable.
+// Returns a consolidated list of bypass methods (at most one per unique Function) or nil if not vulnerable.
 func (c *Client) CheckBinary(name string) []SudoBypass {
-	currName := name
-	for depth := 0; depth < 5; depth++ {
-		exe, exists := c.db.Executables[currName]
+	return c.checkBinaryInternal(name, make(map[string]bool), 0)
+}
+
+func (c *Client) checkBinaryInternal(name string, inheritVisited map[string]bool, inheritDepth int) []SudoBypass {
+	if inheritDepth >= maxInheritDepth {
+		return nil
+	}
+
+	currName, found := c.lookupCandidate(name)
+	if !found {
+		return nil
+	}
+
+	aliasVisited := make(map[string]bool)
+	var targetExe Executable
+	foundTarget := false
+
+	for depth := 0; depth < maxAliasDepth; depth++ {
+		if aliasVisited[currName] {
+			return nil
+		}
+		aliasVisited[currName] = true
+
+		resolvedName, exists := c.lookupCandidate(currName)
 		if !exists {
 			return nil
 		}
+		currName = resolvedName
+		exe := c.db.Executables[currName]
 
 		if exe.Alias != "" {
 			currName = exe.Alias
 			continue
 		}
 
-		// Sort function names for deterministic report output across runs.
-		funcNames := make([]string, 0, len(exe.Functions))
-		for funcName := range exe.Functions {
-			funcNames = append(funcNames, funcName)
-		}
-		slices.Sort(funcNames)
-
-		var bypasses []SudoBypass
-		for _, funcName := range funcNames {
-			exploits := exe.Functions[funcName]
-			for _, exploit := range exploits {
-				// Check if "sudo" context exists in contexts
-				if val, ok := exploit.Contexts["sudo"]; ok {
-					code := exploit.Code
-					// If sudo context has specific details (like a custom code block), use it
-					if val != nil {
-						if m, isMap := val.(map[string]any); isMap {
-							if customCode, exists := m["code"].(string); exists && customCode != "" {
-								code = customCode
-							}
-						}
-					}
-
-					comment := exploit.Comment
-					var inheritedFuncs []string
-					if funcName == "inherit" && exploit.From != "" {
-						inheritedFuncs = c.resolveInheritedFunctions(exploit.From)
-						inheritNote := fmt.Sprintf("Inherits capabilities from '%s'", exploit.From)
-						if len(inheritedFuncs) > 0 {
-							inheritNote = fmt.Sprintf("Inherits [%s] capabilities from '%s'", strings.Join(inheritedFuncs, ", "), exploit.From)
-						}
-						if comment != "" {
-							comment = comment + " (" + inheritNote + ")"
-						} else {
-							comment = inheritNote + "."
-						}
-					}
-
-					bypasses = append(bypasses, SudoBypass{
-						Function:       funcName,
-						Code:           code,
-						Comment:        comment,
-						InheritedFrom:  exploit.From,
-						InheritedFuncs: inheritedFuncs,
-					})
-				}
-			}
-		}
-		return bypasses
+		targetExe = exe
+		foundTarget = true
+		break
 	}
 
-	return nil
-}
+	if !foundTarget || inheritVisited[currName] {
+		return nil
+	}
 
-// resolveInheritedFunctions returns the sorted list of sudo-capable functions belonging to a target binary.
-func (c *Client) resolveInheritedFunctions(target string) []string {
-	curr := target
-	for depth := 0; depth < 5; depth++ {
-		exe, exists := c.db.Executables[curr]
-		if !exists {
-			return nil
-		}
-		if exe.Alias != "" {
-			curr = exe.Alias
+	nextVisited := make(map[string]bool, len(inheritVisited)+1)
+	for k, v := range inheritVisited {
+		nextVisited[k] = v
+	}
+	nextVisited[currName] = true
+
+	// Sort function names for deterministic processing; process direct functions before "inherit".
+	funcNames := make([]string, 0, len(targetExe.Functions))
+	hasInherit := false
+	for fn := range targetExe.Functions {
+		if fn == "inherit" {
+			hasInherit = true
 			continue
 		}
-		var funcs []string
-		for fn, exploits := range exe.Functions {
-			for _, exp := range exploits {
-				if _, ok := exp.Contexts["sudo"]; ok {
-					funcs = append(funcs, fn)
-					break
+		funcNames = append(funcNames, fn)
+	}
+	sort.Strings(funcNames)
+
+	var rawBypasses []SudoBypass
+	for _, funcName := range funcNames {
+		for _, exploit := range targetExe.Functions[funcName] {
+			code, comment, ok := extractSudoCodeAndComment(exploit)
+			if !ok {
+				continue
+			}
+			rawBypasses = append(rawBypasses, SudoBypass{
+				Function: funcName,
+				Code:     code,
+				Comment:  comment,
+			})
+		}
+	}
+
+	if hasInherit {
+		for _, exploit := range targetExe.Functions["inherit"] {
+			if exploit.From == "" {
+				continue
+			}
+			parentCode, parentComment, ok := extractSudoCodeAndComment(exploit)
+			if !ok {
+				continue
+			}
+
+			inheritedBypasses := c.checkBinaryInternal(exploit.From, nextVisited, inheritDepth+1)
+			for _, child := range inheritedBypasses {
+				combinedCode := child.Code
+				if parentCode != "" && child.Code != "" && parentCode != child.Code {
+					combinedCode = parentCode + "\n" + child.Code
+				} else if parentCode != "" && child.Code == "" {
+					combinedCode = parentCode
 				}
+
+				inheritNote := fmt.Sprintf("Inherits %s behavior from %s.", child.Function, exploit.From)
+				commentParts := []string{inheritNote}
+				if parentComment != "" {
+					commentParts = append(commentParts, parentComment)
+				}
+				if child.Comment != "" {
+					commentParts = append(commentParts, child.Comment)
+				}
+
+				rawBypasses = append(rawBypasses, SudoBypass{
+					Function:      child.Function,
+					Code:          combinedCode,
+					Comment:       joinUniqueNonEmptyLines(commentParts),
+					InheritedFrom: exploit.From,
+				})
 			}
 		}
-		slices.Sort(funcs)
-		return funcs
 	}
-	return nil
+
+	return consolidateBypasses(rawBypasses)
+}
+
+func (c *Client) lookupCandidate(name string) (string, bool) {
+	for _, candidate := range NormalizeBinaryName(name) {
+		if _, exists := c.db.Executables[candidate]; exists {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func extractSudoCodeAndComment(exploit Exploit) (string, string, bool) {
+	val, ok := exploit.Contexts["sudo"]
+	if !ok {
+		return "", "", false
+	}
+	code := exploit.Code
+	comment := exploit.Comment
+	if val != nil {
+		if m, isMap := val.(map[string]any); isMap {
+			if customCode, exists := m["code"].(string); exists && customCode != "" {
+				code = customCode
+			}
+			if customComment, exists := m["comment"].(string); exists && customComment != "" {
+				comment = customComment
+			}
+		}
+	}
+	return code, comment, true
+}
+
+func consolidateBypasses(bypasses []SudoBypass) []SudoBypass {
+	if len(bypasses) == 0 {
+		return nil
+	}
+
+	type group struct {
+		codes         []string
+		codeSeen      map[string]bool
+		comments      []string
+		inheritedFrom string
+	}
+
+	groups := make(map[string]*group)
+	var funcNames []string
+
+	for _, b := range bypasses {
+		g, exists := groups[b.Function]
+		if !exists {
+			g = &group{
+				codeSeen:      make(map[string]bool),
+				inheritedFrom: b.InheritedFrom,
+			}
+			groups[b.Function] = g
+			funcNames = append(funcNames, b.Function)
+		} else if g.inheritedFrom == "" && b.InheritedFrom != "" {
+			g.inheritedFrom = b.InheritedFrom
+		}
+
+		if b.Code != "" && !g.codeSeen[b.Code] {
+			g.codeSeen[b.Code] = true
+			g.codes = append(g.codes, b.Code)
+		}
+		if b.Comment != "" {
+			g.comments = append(g.comments, b.Comment)
+		}
+	}
+
+	sort.Strings(funcNames)
+
+	result := make([]SudoBypass, 0, len(funcNames))
+	for _, fn := range funcNames {
+		g := groups[fn]
+		result = append(result, SudoBypass{
+			Function:      fn,
+			Code:          strings.Join(g.codes, "\n\n"),
+			Comment:       joinUniqueNonEmptyLines(g.comments),
+			InheritedFrom: g.inheritedFrom,
+		})
+	}
+
+	return result
+}
+
+func joinUniqueNonEmptyLines(parts []string) string {
+	var unique []string
+	seen := make(map[string]bool)
+	for _, part := range parts {
+		for _, line := range strings.Split(part, "\n") {
+			if line == "" {
+				continue
+			}
+			if !seen[line] {
+				seen[line] = true
+				unique = append(unique, line)
+			}
+		}
+	}
+	return strings.Join(unique, "\n")
 }

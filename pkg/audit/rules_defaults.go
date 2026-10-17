@@ -2,227 +2,334 @@ package audit
 
 import (
 	"fmt"
-	"path"
 	"strconv"
 	"strings"
 )
 
-// dangerousEnvVars lists environment variables that enable library injection,
-// interpreter hijacking, shell startup execution, or editor/pager escalation when preserved.
-var dangerousEnvVars = []string{
-	"LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
-	"PYTHONPATH", "PYTHONHOME", "PYTHONINSPECT", "PYTHONUSERBASE",
-	"PERLLIB", "PERL5LIB", "PERL5OPT",
-	"RUBYLIB", "RUBYOPT", "GEM_PATH",
-	"NODE_OPTIONS", "NODE_PATH", "JAVA_TOOL_OPTIONS",
-	"GCONV_PATH", "GETCONF_DIR", "HOSTALIASES", "LOCALDOMAIN", "RES_OPTIONS",
-	"PATH", "SHELL", "ENV", "BASH_ENV", "ZDOTDIR",
-	"PS4", "SHELLOPTS", "GLOBIGNORE", "BASH_FUNC_*",
-	"EDITOR", "VISUAL", "PAGER", "SUDO_EDITOR", "SYSTEMD_PAGER", "LESSOPEN", "LESSCLOSE",
+// dangerousEnvExact lists environment variables that allow code injection, path hijacking,
+// pager/editor breakout, or authentication tampering when preserved across sudo.
+var dangerousEnvExact = map[string]bool{
+	"LD_PRELOAD":               true,
+	"LD_LIBRARY_PATH":          true,
+	"LD_AUDIT":                 true,
+	"LD_DEBUG":                 true,
+	"LD_DEBUG_OUTPUT":          true,
+	"LD_DYNAMIC_WEAK":          true,
+	"LD_ORIGIN_PATH":           true,
+	"LD_PROFILE":               true,
+	"LD_SHOW_AUXV":             true,
+	"LD_USE_LOAD_BIAS":         true,
+	"GCONV_PATH":               true,
+	"GETCONF_DIR":              true,
+	"HOSTALIASES":              true,
+	"LOCALDOMAIN":              true,
+	"LOCPATH":                  true,
+	"MALLOC_TRACE":             true,
+	"NIS_PATH":                 true,
+	"NLSPATH":                  true,
+	"RESOLV_HOST_CONF":         true,
+	"RES_OPTIONS":              true,
+	"TMPDIR":                   true,
+	"TZDIR":                    true,
+	"PYTHONPATH":               true,
+	"PYTHONHOME":               true,
+	"PYTHONINSPECT":            true,
+	"PYTHONSTARTUP":            true,
+	"PYTHONUSERBASE":           true,
+	"PERLLIB":                  true,
+	"PERL5LIB":                 true,
+	"PERL5OPT":                 true,
+	"PERL5DB":                  true,
+	"RUBYLIB":                  true,
+	"RUBYOPT":                  true,
+	"GEM_PATH":                 true,
+	"GEM_HOME":                 true,
+	"LUA_PATH":                 true,
+	"LUA_CPATH":                true,
+	"LUA_INIT":                 true,
+	"NODE_OPTIONS":             true,
+	"NODE_PATH":                true,
+	"JAVA_TOOL_OPTIONS":        true,
+	"_JAVA_OPTIONS":            true,
+	"CLASSPATH":                true,
+	"PHP_INI_SCAN_DIR":         true,
+	"PHPRC":                    true,
+	"GOFLAGS":                  true,
+	"RUSTC_WRAPPER":            true,
+	"DOTNET_STARTUP_HOOKS":     true,
+	"PATH":                     true,
+	"SHELL":                    true,
+	"ENV":                      true,
+	"BASH_ENV":                 true,
+	"CDPATH":                   true,
+	"IFS":                      true,
+	"GLOBIGNORE":               true,
+	"SHELLOPTS":                true,
+	"BASHOPTS":                 true,
+	"PS4":                      true,
+	"PROMPT_COMMAND":           true,
+	"EDITOR":                   true,
+	"VISUAL":                   true,
+	"SUDO_EDITOR":              true,
+	"PAGER":                    true,
+	"MANPAGER":                 true,
+	"SYSTEMD_PAGER":            true,
+	"GIT_PAGER":                true,
+	"LESS":                     true,
+	"LESSOPEN":                 true,
+	"LESSCLOSE":                true,
+	"MORE":                     true,
+	"GIT_SSH":                  true,
+	"GIT_SSH_COMMAND":          true,
+	"GIT_ASKPASS":              true,
+	"GIT_EXEC_PATH":            true,
+	"SSH_ASKPASS":              true,
+	"OPENSSL_CONF":             true,
+	"OPENSSL_ENGINES":          true,
+	"CURL_HOME":                true,
+	"WGETRC":                   true,
+	"VIMINIT":                  true,
+	"EXINIT":                   true,
+	"XAUTHORITY":               true,
+	"DBUS_SESSION_BUS_ADDRESS": true,
 }
 
-// getLastBoolOption returns the last boolean value assigned to key across a slice of Options.
-// In sudoers, later Defaults declarations override earlier ones (last-match-wins).
-func getLastBoolOption(options []Option, key string) (val bool, found bool) {
-	for _, opt := range options {
-		if _, hasOp := opt["operation"]; hasOp {
-			continue
-		}
-		if bVal, ok := opt[key].(bool); ok {
-			val = bVal
-			found = true
+// isDangerousEnvVar checks whether an environment variable name or pattern is unsafe to preserve.
+func isDangerousEnvVar(item string) bool {
+	cleaned := strings.TrimSpace(item)
+	if cleaned == "" {
+		return false
+	}
+	// If it's a key=value pattern in env_keep, extract the key name
+	if idx := strings.IndexByte(cleaned, '='); idx != -1 {
+		cleaned = cleaned[:idx]
+	}
+	upper := strings.ToUpper(cleaned)
+	if upper == "*" {
+		return true
+	}
+	if dangerousEnvExact[upper] {
+		return true
+	}
+	prefixes := []string{"LD_", "PYTHON", "PERL", "RUBY", "LUA_", "BASH_FUNC_"}
+	for _, p := range prefixes {
+		if strings.HasPrefix(upper, p) {
+			return true
 		}
 	}
-	return val, found
+	return false
 }
 
-// getLastRawOption returns the last raw value (and whether it was present) for key across options.
-func getLastRawOption(options []Option, key string) (val any, found bool) {
-	for _, opt := range options {
-		if _, hasOp := opt["operation"]; hasOp {
-			continue
-		}
-		if raw, ok := opt[key]; ok {
-			val = raw
-			found = true
-		}
+// defaultsState holds the resolved state of a sequence of Defaults options using last-match-wins semantics.
+type defaultsState struct {
+	boolSet     map[string]bool
+	boolVal     map[string]bool
+	strSet      map[string]bool
+	strVal      map[string]string
+	numSet      map[string]bool
+	numVal      map[string]float64
+	disabledOpt map[string]bool
+	lists       map[string][]string
+	listRemoved map[string][]string
+}
+
+func newDefaultsState() *defaultsState {
+	return &defaultsState{
+		boolSet:     make(map[string]bool),
+		boolVal:     make(map[string]bool),
+		strSet:      make(map[string]bool),
+		strVal:      make(map[string]string),
+		numSet:      make(map[string]bool),
+		numVal:      make(map[string]float64),
+		disabledOpt: make(map[string]bool),
+		lists:       make(map[string][]string),
+		listRemoved: make(map[string][]string),
 	}
-	return val, found
 }
 
-// findDangerousEnvKeep inspects list_add, list_assign, and list_remove operations on env_keep
-// in declaration order and returns any dangerous environment variable names or globs preserved.
-func findDangerousEnvKeep(options []Option) []string {
-	var activeItems []string
+func (s *defaultsState) applyOptions(options []Option) {
 	for _, opt := range options {
 		op, isListOp := opt["operation"].(string)
-		if !isListOp {
-			continue
-		}
-		list, exists := opt["env_keep"]
-		if !exists {
-			continue
-		}
-
-		var items []string
-		if anyItems, ok := list.([]any); ok {
-			for _, item := range anyItems {
-				if str, ok := item.(string); ok {
-					items = append(items, str)
+		if isListOp {
+			for k, v := range opt {
+				if k == "operation" {
+					continue
 				}
-			}
-		} else if strItems, ok := list.([]string); ok {
-			items = strItems
-		}
-
-		switch op {
-		case "list_assign":
-			activeItems = append([]string(nil), items...)
-		case "list_add":
-			activeItems = append(activeItems, items...)
-		case "list_remove":
-			var remaining []string
-			for _, cur := range activeItems {
-				removed := false
-				for _, rem := range items {
-					if strings.EqualFold(cur, rem) {
-						removed = true
-						break
+				items := extractStringSlice(v)
+				switch op {
+				case "list_assign":
+					s.lists[k] = append([]string(nil), items...)
+				case "list_add":
+					for _, item := range items {
+						if !containsStr(s.lists[k], item) {
+							s.lists[k] = append(s.lists[k], item)
+						}
+					}
+				case "list_remove":
+					var remaining []string
+					for _, existing := range s.lists[k] {
+						if !containsStr(items, existing) {
+							remaining = append(remaining, existing)
+						}
+					}
+					s.lists[k] = remaining
+					for _, item := range items {
+						if !containsStr(s.listRemoved[k], item) {
+							s.listRemoved[k] = append(s.listRemoved[k], item)
+						}
 					}
 				}
-				if !removed {
-					remaining = append(remaining, cur)
-				}
 			}
-			activeItems = remaining
+			continue
+		}
+
+		for k, v := range opt {
+			switch val := v.(type) {
+			case bool:
+				s.boolSet[k] = true
+				s.boolVal[k] = val
+				if !val {
+					s.disabledOpt[k] = true
+					delete(s.strSet, k)
+					delete(s.numSet, k)
+					delete(s.lists, k)
+				} else {
+					delete(s.disabledOpt, k)
+				}
+			case string:
+				s.strSet[k] = true
+				s.strVal[k] = val
+				delete(s.disabledOpt, k)
+			case float64:
+				s.numSet[k] = true
+				s.numVal[k] = val
+				delete(s.disabledOpt, k)
+			case int:
+				s.numSet[k] = true
+				s.numVal[k] = float64(val)
+				delete(s.disabledOpt, k)
+			}
 		}
 	}
-
-	var foundDangerous []string
-	for _, item := range activeItems {
-		// Strip optional =* value suffix supported by sudoers env_keep syntax
-		varName := item
-		if eqIdx := strings.IndexByte(varName, '='); eqIdx != -1 {
-			varName = varName[:eqIdx]
-		}
-		upperItem := strings.ToUpper(strings.TrimSpace(varName))
-		if upperItem == "" {
-			continue
-		}
-
-		isDangerous := false
-		if upperItem == "*" {
-			isDangerous = true
-		} else {
-			for _, dangerous := range dangerousEnvVars {
-				if upperItem == dangerous {
-					isDangerous = true
-					break
-				}
-				// Check if the env_keep entry uses a glob pattern (e.g., "LD_*", "PYTHON*")
-				// that matches a known dangerous environment variable, or vice versa.
-				if strings.ContainsAny(upperItem, "*?[") {
-					if matched, err := path.Match(upperItem, dangerous); err == nil && matched {
-						isDangerous = true
-						break
-					}
-				}
-				if strings.ContainsAny(dangerous, "*?[") {
-					if matched, err := path.Match(dangerous, upperItem); err == nil && matched {
-						isDangerous = true
-						break
-					}
-				}
-			}
-		}
-
-		if isDangerous {
-			foundDangerous = append(foundDangerous, item)
-		}
-	}
-	return foundDangerous
 }
 
-// effectiveGlobalDefaults computes the effective global noPasswd (!authenticate) and noExec
-// states from global Defaults entries so AuditCommands can inherit them as baseline defaults.
-func effectiveGlobalDefaults(policy *SudoersPolicy) (noPasswd bool, noExec bool) {
-	var globalOptions []Option
-	for _, def := range policy.Defaults {
-		if len(def.Binding) == 0 {
-			globalOptions = append(globalOptions, def.Options...)
-		}
-	}
-	if authVal, found := getLastBoolOption(globalOptions, "authenticate"); found {
-		noPasswd = !authVal
-	}
-	if noExecVal, found := getLastBoolOption(globalOptions, "noexec"); found {
-		noExec = noExecVal
-	}
-	return noPasswd, noExec
+func (s *defaultsState) isTrue(key string) bool {
+	return s.boolSet[key] && s.boolVal[key]
 }
 
-// AuditDefaults runs security checks on global Defaults and scoped/bound Defaults entries.
+func (s *defaultsState) isFalse(key string) bool {
+	return s.boolSet[key] && !s.boolVal[key]
+}
+
+func (s *defaultsState) hasOption(key string) bool {
+	if s.disabledOpt[key] {
+		return false
+	}
+	return s.boolSet[key] || s.strSet[key] || s.numSet[key]
+}
+
+func (s *defaultsState) getUmask() (string, bool) {
+	if s.disabledOpt["umask"] {
+		return "", false
+	}
+	if s.strSet["umask"] {
+		return s.strVal["umask"], true
+	}
+	if s.numSet["umask"] {
+		return fmt.Sprintf("%04o", int(s.numVal["umask"])), true
+	}
+	return "", false
+}
+
+func (s *defaultsState) getFloat(key string) (float64, bool) {
+	if s.disabledOpt[key] {
+		return 0, false
+	}
+	if s.numSet[key] {
+		return s.numVal[key], true
+	}
+	if s.strSet[key] {
+		if f, err := strconv.ParseFloat(strings.TrimSpace(s.strVal[key]), 64); err == nil {
+			return f, true
+		}
+	}
+	return 0, false
+}
+
+func extractStringSlice(v any) []string {
+	var items []string
+	switch list := v.(type) {
+	case []any:
+		for _, item := range list {
+			if str, ok := item.(string); ok {
+				items = append(items, str)
+			}
+		}
+	case []string:
+		items = append(items, list...)
+	}
+	return items
+}
+
+func containsStr(slice []string, target string) bool {
+	for _, s := range slice {
+		if s == target {
+			return true
+		}
+	}
+	return false
+}
+
+// AuditDefaults runs security checks on global and scoped Defaults in the policy.
 func AuditDefaults(policy *SudoersPolicy) []Finding {
 	var findings []Finding
 
-	// Separate global defaults (where Binding is empty) from scoped/bound defaults.
-	var globalOptions []Option
+	globalState := newDefaultsState()
+	var globalLine int
 	for _, def := range policy.Defaults {
 		if len(def.Binding) == 0 {
-			globalOptions = append(globalOptions, def.Options...)
+			if globalLine == 0 && def.Line > 0 {
+				globalLine = def.Line
+			}
+			globalState.applyOptions(def.Options)
 		}
 	}
 
-	// Helper to check if a boolean option's last effective setting is true.
-	isTrue := func(key string) bool {
-		val, found := getLastBoolOption(globalOptions, key)
-		return found && val
-	}
-
-	// Helper to check if a boolean option is missing or its last effective setting is false.
-	isMissingOrFalse := func(key string) bool {
-		val, found := getLastBoolOption(globalOptions, key)
-		return !found || !val
-	}
-
-	// Check 1: Missing, disabled, empty, or relative secure_path
-	rawSecurePath, hasSecurePath := getLastRawOption(globalOptions, "secure_path")
-	if !hasSecurePath {
+	// Check 1: Missing or empty secure_path (SUDO-DEF-001) & dangerous path in secure_path (SUDO-DEF-002)
+	if !globalState.hasOption("secure_path") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-001",
 			Title:       "Missing secure_path Configuration",
 			Description: "The global 'secure_path' default is not defined. Sudo will run commands using the calling user's PATH variable, which can lead to local command hijacking/privilege escalation if the user's PATH contains writable directories.",
 			Severity:    SeverityHigh,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"' to the sudoers file.",
+			Compliance:  []string{"ANSSI-BP-028", "CIS-5.2"},
 		})
-	} else if bVal, isBool := rawSecurePath.(bool); isBool && !bVal {
-		findings = append(findings, Finding{
-			ID:          "SUDO-DEF-001",
-			Title:       "Disabled secure_path Configuration",
-			Description: "The global 'secure_path' is explicitly disabled ('!secure_path'). Sudo will trust the invoking user's PATH environment variable, enabling command hijacking.",
-			Severity:    SeverityHigh,
-			Remediation: "Enable 'Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"' in the sudoers file.",
-		})
-	} else if securePath, isStr := rawSecurePath.(string); isStr {
+	} else {
+		securePath := globalState.strVal["secure_path"]
 		if securePath == "" {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-001",
 				Title:       "Empty secure_path Configuration",
 				Description: "The global 'secure_path' is defined but empty. Sudo will fallback to the user's current PATH environment, raising hijacking risks.",
 				Severity:    SeverityHigh,
+				Line:        globalLine,
 				Remediation: "Ensure secure_path has a set of safe directories: 'Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"'",
+				Compliance:  []string{"ANSSI-BP-028", "CIS-5.2"},
 			})
 		} else {
-			// Check for relative paths or current directory '.' or empty elements in PATH
 			parts := strings.Split(securePath, ":")
 			for _, part := range parts {
 				if part == "." || part == "" || !strings.HasPrefix(part, "/") {
 					findings = append(findings, Finding{
 						ID:          "SUDO-DEF-002",
 						Title:       "Dangerous path in secure_path",
-						Description: fmt.Sprintf("The 'secure_path' contains a relative or empty directory entry: '%s'. This can allow attackers to hijack commands if they drop a malicious binary in the relative target path.", part),
+						Description: fmt.Sprintf("The 'secure_path' contains a relative or empty directory entry: '%s'. This can allow local users to hijack commands if a binary is placed in the relative target path.", part),
 						Severity:    SeverityHigh,
+						Line:        globalLine,
 						Remediation: "Only specify absolute paths in secure_path.",
+						Compliance:  []string{"ANSSI-BP-028", "CIS-5.2"},
 					})
 					break
 				}
@@ -230,101 +337,85 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 		}
 	}
 
-	// Check 2: Missing or disabled use_pty
-	if isMissingOrFalse("use_pty") {
+	// Check 2: Missing or disabled use_pty (SUDO-DEF-003)
+	if !globalState.hasOption("use_pty") || globalState.isFalse("use_pty") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-003",
 			Title:       "Missing or Disabled use_pty",
-			Description: "The 'use_pty' flag is not enabled globally. Without a pseudo-terminal (PTY) allocation, processes run via sudo can write to the terminal's input buffer using TIOCSTI ioctls, enabling terminal hijacking and command injection back into the user's shell.",
+			Description: "The 'use_pty' flag is not enabled globally. Without a pseudo-terminal (PTY) allocation, processes run via sudo can access the invoking terminal's input buffer, enabling terminal hijacking.",
 			Severity:    SeverityMedium,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults use_pty' globally to the sudoers file.",
+			Compliance:  []string{"ANSSI-BP-028 R39", "CIS-5.2.2"},
 		})
 	}
 
-	// Check 3: Dangerous env_keep list
-	if foundDangerous := findDangerousEnvKeep(globalOptions); len(foundDangerous) > 0 {
-		findings = append(findings, Finding{
-			ID:          "SUDO-DEF-004",
-			Title:       "Dangerous Environment Variables Preserved (env_keep)",
-			Description: fmt.Sprintf("The policy explicitly preserves dangerous environment variables in env_keep: %s. This can allow local users to inject code into elevated processes (e.g. via dynamic linker hijack LD_PRELOAD, interpreter library paths, or pager/editor overrides).", strings.Join(foundDangerous, ", ")),
-			Severity:    SeverityCritical,
-			Remediation: "Remove dynamic library path, shell, editor, and interpreter environment variables from 'env_keep' additions in sudoers Defaults.",
-		})
-	}
+	// Check 3: Dangerous environment variables preserved in env_keep or env_check, or removed from env_delete (SUDO-DEF-004)
+	findings = append(findings, checkEnvLists(globalState, "", globalLine)...)
 
-	// Check 4: visiblepw enabled
-	if isTrue("visiblepw") {
+	// Check 4: visiblepw enabled (SUDO-DEF-005)
+	if globalState.isTrue("visiblepw") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-005",
 			Title:       "visiblepw Flag Enabled",
-			Description: "The 'visiblepw' option is enabled globally. This forces sudo to print the password in cleartext if prompting on a terminal, exposing it to shoulder surfing or screen logs.",
+			Description: "The 'visiblepw' option is enabled globally. This forces sudo to print the password in cleartext if prompting on a terminal without echo suppression, exposing it to shoulder surfing or screen logs.",
 			Severity:    SeverityHigh,
+			Line:        globalLine,
 			Remediation: "Remove 'Defaults visiblepw' or explicitly set 'Defaults !visiblepw'.",
+			Compliance:  []string{"ANSSI-BP-028"},
 		})
 	}
 
-	// Check 5: pwfeedback enabled
-	if isTrue("pwfeedback") {
+	// Check 5: pwfeedback enabled (SUDO-DEF-006)
+	if globalState.isTrue("pwfeedback") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-006",
 			Title:       "pwfeedback Flag Enabled",
-			Description: "The 'pwfeedback' option is enabled. It displays asterisks (*) when typing passwords, which visually leaks the password length and has historically had security vulnerabilities.",
+			Description: "The 'pwfeedback' option is enabled. It displays visual feedback when typing passwords, which leaks password length and has historically been associated with buffer overflow vulnerabilities (CVE-2019-18634).",
 			Severity:    SeverityLow,
-			Remediation: "Remove 'Defaults pwfeedback' or explicitly set 'Defaults !pwfeedback' (asterisks feedback is disabled by default).",
+			Line:        globalLine,
+			Remediation: "Remove 'Defaults pwfeedback' or explicitly set 'Defaults !pwfeedback' (visual feedback is disabled by default).",
+			Compliance:  []string{"ANSSI-BP-028"},
 		})
 	}
 
-	// Check 6: Missing or disabled noexec
-	if isMissingOrFalse("noexec") {
+	// Check 6: Missing or disabled noexec (SUDO-DEF-007)
+	if !globalState.hasOption("noexec") || globalState.isFalse("noexec") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-007",
 			Title:       "Missing or Disabled noexec",
-			Description: "The global 'noexec' flag is not enabled. This allows run commands to execute subprocesses (e.g. shells) unless individually blocked or restricted, increasing shell escape risk.",
+			Description: "The global 'noexec' flag is not enabled. This allows permitted commands to execute child processes (such as interactive shells or pagers) unless individually restricted.",
 			Severity:    SeverityMedium,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults noexec' globally to the sudoers file to prevent execution of subprocesses by default.",
+			Compliance:  []string{"ANSSI-BP-028 R39"},
 		})
 	}
 
-	// Check 7: Missing or disabled requiretty
-	if isMissingOrFalse("requiretty") {
+	// Check 7: Missing or disabled requiretty (SUDO-DEF-008)
+	if !globalState.hasOption("requiretty") || globalState.isFalse("requiretty") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-008",
 			Title:       "Missing or Disabled requiretty",
-			Description: "The global 'requiretty' flag is not enabled. Without it, commands can be executed from non-interactive environments (like crontab or daemons) which complicates session tracking and audibility.",
+			Description: "The global 'requiretty' flag is not enabled. Without it, commands can be executed from non-interactive sessions (such as background daemons or cron jobs), complicating session attribution.",
 			Severity:    SeverityLow,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults requiretty' globally to the sudoers file.",
+			Compliance:  []string{"ANSSI-BP-028 R39"},
 		})
 	}
 
-	// Check 8: Missing, disabled, or weak umask (last-match-wins)
-	checkUmask := func(opts []Option) (string, bool) {
-		rawVal, found := getLastRawOption(opts, "umask")
-		if !found {
-			return "", false
-		}
-		switch v := rawVal.(type) {
-		case string:
-			return v, true
-		case float64:
-			return fmt.Sprintf("%o", int(v)), true
-		case int:
-			return fmt.Sprintf("%o", v), true
-		case bool:
-			// Defaults !umask emits {"umask": false}
-			if !v {
-				return "!umask", true
-			}
-		}
-		return "", false
-	}
-	umaskStr, hasUmask := checkUmask(globalOptions)
+	// Check 8: Missing or weak umask (SUDO-DEF-009)
+	umaskStr, hasUmask := globalState.getUmask()
 	if !hasUmask {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-009",
 			Title:       "Missing umask Configuration",
 			Description: "The global 'umask' option is not configured. Commands executed under sudo will run with the invoking user's umask, which could result in newly created files having overly permissive access controls.",
 			Severity:    SeverityMedium,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults umask=0077' to the sudoers file to enforce a restrictive umask for all executed commands.",
+			Compliance:  []string{"ANSSI-BP-028 R39"},
 		})
 	} else {
 		umaskVal, err := strconv.ParseInt(umaskStr, 8, 64)
@@ -334,215 +425,360 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 				Title:       "Weak umask Configuration",
 				Description: fmt.Sprintf("The global umask is set to a weak value '%s'. A weak umask can result in files or directories created by commands running as root being readable or writable by unprivileged users.", umaskStr),
 				Severity:    SeverityMedium,
+				Line:        globalLine,
 				Remediation: "Set 'Defaults umask=0077' in the sudoers file.",
+				Compliance:  []string{"ANSSI-BP-028 R39"},
 			})
 		}
 	}
 
-	// Check 9: Missing or disabled ignore_dot
-	if isMissingOrFalse("ignore_dot") {
+	// Check 9: Missing or disabled ignore_dot (SUDO-DEF-010)
+	if !globalState.hasOption("ignore_dot") || globalState.isFalse("ignore_dot") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-010",
 			Title:       "Missing or Disabled ignore_dot",
-			Description: "The global 'ignore_dot' flag is not enabled. Sudo will not ignore the current directory '.' if it is present in the PATH environment variable, which could allow command hijacking if a user runs sudo in a directory containing malicious scripts.",
+			Description: "The global 'ignore_dot' flag is not enabled. Sudo will not ignore the current directory '.' if it is present in PATH, which could allow binary hijacking from the working directory.",
 			Severity:    SeverityMedium,
+			Line:        globalLine,
 			Remediation: "Add 'Defaults ignore_dot' globally to the sudoers file.",
+			Compliance:  []string{"ANSSI-BP-028 R39"},
 		})
 	}
 
-	// Check 10: Missing or disabled env_reset
-	if isMissingOrFalse("env_reset") {
+	// Check 10: Missing or disabled env_reset (SUDO-DEF-011)
+	if !globalState.hasOption("env_reset") || globalState.isFalse("env_reset") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-011",
 			Title:       "Missing or Disabled env_reset",
-			Description: "The global 'env_reset' flag is not enabled. This allows environment variables to be preserved when running commands under sudo, facilitating environment poisoning and potential privilege escalation.",
+			Description: "The global 'env_reset' flag is not enabled. This allows the calling user's environment variables to be inherited when running commands under sudo.",
 			Severity:    SeverityHigh,
+			Line:        globalLine,
 			Remediation: "Enable 'Defaults env_reset' globally in the sudoers file.",
+			Compliance:  []string{"ANSSI-BP-028 R39", "CIS-5.2"},
 		})
 	}
 
-	// Check 11: Global authentication disabled (Defaults !authenticate)
-	if authVal, found := getLastBoolOption(globalOptions, "authenticate"); found && !authVal {
+	// Check 11: Global authentication disabled via Defaults !authenticate (SUDO-DEF-012)
+	if globalState.isFalse("authenticate") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-012",
-			Title:       "Global Authentication Disabled (!authenticate)",
-			Description: "The global 'authenticate' flag is explicitly disabled ('Defaults !authenticate'). All sudo rules will execute without requiring a password by default, turning any permitted command vulnerability into immediate passwordless privilege escalation.",
+			Title:       "Password Authentication Disabled Globally (!authenticate)",
+			Description: "The global 'Defaults !authenticate' option is set, disabling password verification for all sudo rules across the policy.",
 			Severity:    SeverityCritical,
-			Remediation: "Remove 'Defaults !authenticate' and enable 'Defaults authenticate' globally.",
+			Line:        globalLine,
+			Remediation: "Remove 'Defaults !authenticate' and require authentication for privileged operations.",
+			Compliance:  []string{"ANSSI-BP-028", "CIS-5.2.4", "DISA-STIG"},
 		})
 	}
 
-	// Check 12: Global setenv enabled (Defaults setenv)
-	if isTrue("setenv") {
+	// Check 12: Global setenv enabled (SUDO-DEF-013)
+	if globalState.isTrue("setenv") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-013",
-			Title:       "Global Environment Override Permitted (setenv)",
-			Description: "The global 'setenv' option is enabled ('Defaults setenv'). This permits users to preserve their environment via 'sudo -E' or pass arbitrary environment variables on the command line, bypassing 'env_reset'.",
+			Title:       "Environment Override Permitted Globally (setenv)",
+			Description: "The global 'Defaults setenv' option is enabled, allowing users to pass arbitrary environment variables via 'sudo -E' or command-line variable assignments, bypassing 'env_reset'.",
 			Severity:    SeverityHigh,
+			Line:        globalLine,
 			Remediation: "Remove 'Defaults setenv' or explicitly set 'Defaults !setenv'.",
+			Compliance:  []string{"ANSSI-BP-028", "CIS-5.2"},
 		})
 	}
 
-	// Check 13: Global sudoedit_follow enabled (Defaults sudoedit_follow)
-	if isTrue("sudoedit_follow") {
+	// Check 13: Insecure sudoedit symlink/directory settings (SUDO-DEF-014)
+	if globalState.isTrue("sudoedit_follow") || globalState.isFalse("sudoedit_checkdir") {
 		findings = append(findings, Finding{
 			ID:          "SUDO-DEF-014",
-			Title:       "Sudoedit Symlink Following Enabled (sudoedit_follow)",
-			Description: "The global 'sudoedit_follow' option is enabled. When users edit files with 'sudoedit', sudo will follow symbolic links, allowing attackers with write access to the target path's parent directory or symlink to edit arbitrary root-owned files.",
+			Title:       "Insecure sudoedit Symlink or Directory Configuration",
+			Description: "The policy enables 'sudoedit_follow' or disables 'sudoedit_checkdir' globally. This allows 'sudoedit' to follow symbolic links or edit files inside user-writable parent directories, enabling arbitrary file modification.",
 			Severity:    SeverityHigh,
-			Remediation: "Remove 'Defaults sudoedit_follow' or explicitly set 'Defaults !sudoedit_follow'.",
+			Line:        globalLine,
+			Remediation: "Ensure 'Defaults !sudoedit_follow' and 'Defaults sudoedit_checkdir' are enforced.",
+			Compliance:  []string{"ANSSI-BP-028"},
 		})
 	}
 
-	// Check 14: Weak credential caching (timestamp_timeout < 0 or > 15, or !tty_tickets / global timestamp_type)
-	if rawTimeout, found := getLastRawOption(globalOptions, "timestamp_timeout"); found {
-		var timeoutVal float64
-		var parsed bool
-		switch v := rawTimeout.(type) {
-		case float64:
-			timeoutVal, parsed = v, true
-		case int:
-			timeoutVal, parsed = float64(v), true
-		case string:
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				timeoutVal, parsed = f, true
-			}
-		}
-		if parsed && (timeoutVal < 0 || timeoutVal > 15) {
+	// Check 14: Weak authentication or credential caching timeouts (SUDO-DEF-015)
+	if tsTimeout, ok := globalState.getFloat("timestamp_timeout"); ok {
+		if tsTimeout < 0 || tsTimeout > 15 {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-015",
 				Title:       "Weak Sudo Credential Cache Timeout (timestamp_timeout)",
-				Description: fmt.Sprintf("The 'timestamp_timeout' is set to '%v' minutes. Negative values cause cached sudo credentials to never expire, and values over 15 minutes widen the window for session hijacking.", rawTimeout),
+				Description: fmt.Sprintf("The 'timestamp_timeout' option is set to %v minutes. Negative values disable credential expiration entirely, and values above 15 minutes extend the window for session reuse.", tsTimeout),
 				Severity:    SeverityMedium,
-				Remediation: "Set 'Defaults timestamp_timeout=5' (or 0 to always prompt for a password) in the sudoers file.",
+				Line:        globalLine,
+				Remediation: "Set 'Defaults timestamp_timeout=5' (or 0 to always prompt) in the sudoers file.",
+				Compliance:  []string{"ANSSI-BP-028", "CIS-5.2.6", "DISA-STIG"},
 			})
 		}
 	}
-	if ttyTickets, found := getLastBoolOption(globalOptions, "tty_tickets"); found && !ttyTickets {
-		findings = append(findings, Finding{
-			ID:          "SUDO-DEF-015",
-			Title:       "Per-TTY Sudo Tickets Disabled (!tty_tickets)",
-			Description: "The 'tty_tickets' option is disabled ('Defaults !tty_tickets'). Sudo credential tokens are shared across all terminal sessions for the same user, allowing background processes to piggyback on a user's authenticated sudo session.",
-			Severity:    SeverityMedium,
-			Remediation: "Enable 'Defaults tty_tickets' or set 'Defaults timestamp_type=tty' in the sudoers file.",
-		})
-	} else if rawTsType, found := getLastRawOption(globalOptions, "timestamp_type"); found {
-		if tsType, ok := rawTsType.(string); ok && strings.EqualFold(tsType, "global") {
+	if pwTimeout, ok := globalState.getFloat("passwd_timeout"); ok {
+		if pwTimeout <= 0 || pwTimeout > 5 {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-015",
-				Title:       "Global Sudo Credential Timestamp Type (timestamp_type=global)",
-				Description: "The 'timestamp_type' is set to 'global'. Sudo credential tokens are shared across all sessions for the user rather than isolated per-TTY or per-PPID.",
-				Severity:    SeverityMedium,
-				Remediation: "Set 'Defaults timestamp_type=tty' or 'Defaults timestamp_type=ppid' in the sudoers file.",
+				Title:       "Weak Sudo Password Prompt Timeout (passwd_timeout)",
+				Description: fmt.Sprintf("The 'passwd_timeout' option is set to %v minutes. Values of 0 disable the password prompt timeout, and high values leave unattended password prompts open.", pwTimeout),
+				Severity:    SeverityLow,
+				Line:        globalLine,
+				Remediation: "Set 'Defaults passwd_timeout=1' in the sudoers file as recommended by ANSSI BP-028.",
+				Compliance:  []string{"ANSSI-BP-028 R39"},
 			})
 		}
 	}
+	if globalState.strSet["timestamp_type"] && strings.EqualFold(globalState.strVal["timestamp_type"], "global") {
+		findings = append(findings, Finding{
+			ID:          "SUDO-DEF-015",
+			Title:       "Global Credential Cache Scope (timestamp_type=global)",
+			Description: "The 'timestamp_type' is set to 'global', sharing cached sudo authentication tickets across all terminal sessions of the same user.",
+			Severity:    SeverityMedium,
+			Line:        globalLine,
+			Remediation: "Set 'Defaults timestamp_type=tty' or 'Defaults timestamp_type=ppid' to isolate authentication tickets per session.",
+			Compliance:  []string{"CIS-5.2.7", "DISA-STIG"},
+		})
+	}
 
-	// Audit scoped/bound Defaults (e.g., Defaults:user, Defaults@host, Defaults!cmnd, Defaults>runas)
-	findings = append(findings, auditBoundDefaults(policy)...)
+	// Check 15: Global runchroot or insecure runcwd (SUDO-DEF-016)
+	if globalState.strSet["runchroot"] && globalState.strVal["runchroot"] != "" {
+		findings = append(findings, Finding{
+			ID:          "SUDO-DEF-016",
+			Title:       "Deprecated or Risky Chroot Directive in Defaults (runchroot)",
+			Description: fmt.Sprintf("The global 'runchroot' option is set to '%s'. Sudo chroot functionality has been associated with critical vulnerabilities (CVE-2023-27320, CVE-2025-32463) and is deprecated upstream.", globalState.strVal["runchroot"]),
+			Severity:    SeverityHigh,
+			Line:        globalLine,
+			Remediation: "Remove 'Defaults runchroot' from the sudoers policy and use OS-level containerization or namespaces instead.",
+		})
+	}
+	if globalState.strSet["runcwd"] && globalState.strVal["runcwd"] == "*" {
+		findings = append(findings, Finding{
+			ID:          "SUDO-DEF-016",
+			Title:       "Unrestricted Working Directory Override in Defaults (runcwd=*)",
+			Description: "The global 'runcwd' option is set to '*', allowing users to set the command's working directory to arbitrary paths via 'sudo -D'.",
+			Severity:    SeverityMedium,
+			Line:        globalLine,
+			Remediation: "Remove 'Defaults runcwd=*' or restrict 'runcwd' to a trusted absolute directory.",
+		})
+	}
+
+	// Audit Scoped Defaults (where len(def.Binding) > 0)
+	findings = append(findings, auditScopedDefaults(policy)...)
 
 	return findings
 }
 
-// auditBoundDefaults inspects non-global Defaults entries (where Binding is non-empty)
-// for dangerous overrides such as disabling env_reset/use_pty/authenticate or adding dangerous env_keep variables.
-func auditBoundDefaults(policy *SudoersPolicy) []Finding {
+func checkEnvLists(state *defaultsState, scopeLabel string, line int) []Finding {
+	var findings []Finding
+	var foundDangerous []string
+
+	for _, listName := range []string{"env_keep", "env_check"} {
+		for _, item := range state.lists[listName] {
+			if isDangerousEnvVar(item) && !containsStr(foundDangerous, item) {
+				foundDangerous = append(foundDangerous, item)
+			}
+		}
+	}
+	for _, item := range state.listRemoved["env_delete"] {
+		if isDangerousEnvVar(item) && !containsStr(foundDangerous, item) {
+			foundDangerous = append(foundDangerous, item)
+		}
+	}
+
+	if len(foundDangerous) > 0 {
+		scopeDesc := "The policy"
+		if scopeLabel != "" {
+			scopeDesc = fmt.Sprintf("Scoped Defaults for [%s]", scopeLabel)
+		}
+		findings = append(findings, Finding{
+			ID:          "SUDO-DEF-004",
+			Title:       "Dangerous Environment Variables Preserved (env_keep)",
+			Description: fmt.Sprintf("%s explicitly preserves dangerous environment variables: %s. This can allow local users to alter runtime linker behavior, interpreter module paths, or pager/editor execution in elevated processes.", scopeDesc, strings.Join(foundDangerous, ", ")),
+			Severity:    SeverityCritical,
+			User:        scopeLabel,
+			Line:        line,
+			Remediation: "Remove dynamic library path, interpreter path, and shell/editor environment variables from 'env_keep' and 'env_check' in sudoers Defaults.",
+			Compliance:  []string{"ANSSI-BP-028 R39", "CIS-5.2"},
+		})
+	}
+	return findings
+}
+
+func auditScopedDefaults(policy *SudoersPolicy) []Finding {
 	var findings []Finding
 
 	for _, def := range policy.Defaults {
 		if len(def.Binding) == 0 {
 			continue
 		}
-
-		var targets []string
+		var names []string
 		for _, m := range def.Binding {
-			name := m.GetName()
-			if m.Negated {
-				name = "!" + name
-			}
-			if name != "" {
-				targets = append(targets, name)
+			if n := m.GetName(); n != "" {
+				names = append(names, n)
 			}
 		}
-		bindingStr := strings.Join(targets, ", ")
+		scopeLabel := strings.Join(names, ", ")
+		state := newDefaultsState()
+		state.applyOptions(def.Options)
 
-		if val, found := getLastBoolOption(def.Options, "env_reset"); found && !val {
-			findings = append(findings, Finding{
-				ID:          "SUDO-DEF-011",
-				Title:       "Scoped env_reset Disabled",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] explicitly disables 'env_reset', allowing environment variables to be preserved.", bindingStr),
-				Severity:    SeverityHigh,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove '!env_reset' from the scoped Defaults entry for [%s].", bindingStr),
-			})
-		}
-
-		if val, found := getLastBoolOption(def.Options, "use_pty"); found && !val {
-			findings = append(findings, Finding{
-				ID:          "SUDO-DEF-003",
-				Title:       "Scoped use_pty Disabled",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] explicitly disables 'use_pty', exposing those sessions to TIOCSTI terminal hijacking.", bindingStr),
-				Severity:    SeverityMedium,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove '!use_pty' from the scoped Defaults entry for [%s].", bindingStr),
-			})
-		}
-
-		if foundDangerous := findDangerousEnvKeep(def.Options); len(foundDangerous) > 0 {
-			findings = append(findings, Finding{
-				ID:          "SUDO-DEF-004",
-				Title:       "Scoped Dangerous Environment Variables Preserved (env_keep)",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] preserves dangerous environment variables in env_keep: %s.", bindingStr, strings.Join(foundDangerous, ", ")),
-				Severity:    SeverityCritical,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove dangerous variables from scoped 'env_keep' for [%s].", bindingStr),
-			})
-		}
-
-		if val, found := getLastBoolOption(def.Options, "visiblepw"); found && val {
-			findings = append(findings, Finding{
-				ID:          "SUDO-DEF-005",
-				Title:       "Scoped visiblepw Flag Enabled",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'visiblepw', exposing passwords in cleartext.", bindingStr),
-				Severity:    SeverityHigh,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove 'visiblepw' from the scoped Defaults entry for [%s].", bindingStr),
-			})
-		}
-
-		if val, found := getLastBoolOption(def.Options, "authenticate"); found && !val {
+		if state.isFalse("authenticate") {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-012",
-				Title:       "Scoped Authentication Disabled (!authenticate)",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] disables authentication ('!authenticate'), granting passwordless execution to matching rules.", bindingStr),
+				Title:       "Password Authentication Disabled in Scoped Defaults (!authenticate)",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] sets '!authenticate', disabling password prompts for all matching rules.", scopeLabel),
 				Severity:    SeverityCritical,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove '!authenticate' from the scoped Defaults entry for [%s].", bindingStr),
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove '!authenticate' from Defaults for [%s].", scopeLabel),
+				Compliance:  []string{"ANSSI-BP-028", "CIS-5.2.4"},
 			})
 		}
-
-		if val, found := getLastBoolOption(def.Options, "setenv"); found && val {
+		if state.isFalse("env_reset") {
+			findings = append(findings, Finding{
+				ID:          "SUDO-DEF-011",
+				Title:       "Disabled env_reset in Scoped Defaults",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] explicitly disables 'env_reset', preserving user environment variables.", scopeLabel),
+				Severity:    SeverityHigh,
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove '!env_reset' from Defaults for [%s].", scopeLabel),
+				Compliance:  []string{"ANSSI-BP-028 R39"},
+			})
+		}
+		if state.isFalse("use_pty") {
+			findings = append(findings, Finding{
+				ID:          "SUDO-DEF-003",
+				Title:       "Disabled use_pty in Scoped Defaults",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] explicitly disables 'use_pty'.", scopeLabel),
+				Severity:    SeverityMedium,
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove '!use_pty' from Defaults for [%s].", scopeLabel),
+				Compliance:  []string{"ANSSI-BP-028 R39", "CIS-5.2.2"},
+			})
+		}
+		if state.isFalse("noexec") {
+			findings = append(findings, Finding{
+				ID:          "SUDO-DEF-007",
+				Title:       "Disabled noexec in Scoped Defaults",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] explicitly disables 'noexec'.", scopeLabel),
+				Severity:    SeverityMedium,
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove '!noexec' from Defaults for [%s].", scopeLabel),
+				Compliance:  []string{"ANSSI-BP-028 R39"},
+			})
+		}
+		if state.isTrue("visiblepw") {
+			findings = append(findings, Finding{
+				ID:          "SUDO-DEF-005",
+				Title:       "visiblepw Enabled in Scoped Defaults",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'visiblepw'.", scopeLabel),
+				Severity:    SeverityHigh,
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove 'visiblepw' from Defaults for [%s].", scopeLabel),
+			})
+		}
+		if state.isTrue("setenv") {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-013",
-				Title:       "Scoped Environment Override Permitted (setenv)",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'setenv', allowing users to preserve arbitrary environment variables.", bindingStr),
+				Title:       "Environment Override Permitted in Scoped Defaults (setenv)",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'setenv', allowing arbitrary environment variable overrides.", scopeLabel),
 				Severity:    SeverityHigh,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove 'setenv' from the scoped Defaults entry for [%s].", bindingStr),
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Remove 'setenv' from Defaults for [%s].", scopeLabel),
 			})
 		}
-
-		if val, found := getLastBoolOption(def.Options, "sudoedit_follow"); found && val {
+		if state.isTrue("sudoedit_follow") || state.isFalse("sudoedit_checkdir") {
 			findings = append(findings, Finding{
 				ID:          "SUDO-DEF-014",
-				Title:       "Scoped Sudoedit Symlink Following Enabled (sudoedit_follow)",
-				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'sudoedit_follow', allowing symlink following during sudoedit.", bindingStr),
+				Title:       "Insecure sudoedit Configuration in Scoped Defaults",
+				Description: fmt.Sprintf("Scoped Defaults for [%s] enables 'sudoedit_follow' or disables 'sudoedit_checkdir'.", scopeLabel),
 				Severity:    SeverityHigh,
-				User:        bindingStr,
-				Remediation: fmt.Sprintf("Remove 'sudoedit_follow' from the scoped Defaults entry for [%s].", bindingStr),
+				User:        scopeLabel,
+				Line:        def.Line,
+				Remediation: fmt.Sprintf("Enforce '!sudoedit_follow' and 'sudoedit_checkdir' for [%s].", scopeLabel),
 			})
 		}
+		findings = append(findings, checkEnvLists(state, scopeLabel, def.Line)...)
 	}
 
 	return findings
+}
+
+// resolveEffectiveFlags computes the effective (noPasswd, noExec) flags for a command specification,
+// taking into account global Defaults, matching scoped Defaults, and per-command CmndSpec.Options.
+func resolveEffectiveFlags(policy *SudoersPolicy, users []Member, hosts []Member, runasUsers []Member, cmdStr string, csOptions []Option) (noPasswd bool, noExec bool) {
+	// Notice: historically AuditCommands only treated noExec as true when set on csOptions or matching command/user Defaults,
+	// unless we check whether authenticate/noexec were set.
+	// Wait: if global Defaults sets !authenticate, then every command is passwordless!
+	for _, def := range policy.Defaults {
+		if len(def.Binding) == 0 {
+			for _, opt := range def.Options {
+				if val, ok := opt["authenticate"].(bool); ok {
+					noPasswd = !val
+				}
+			}
+		} else if bindingMatches(def.Binding, policy, users, hosts, runasUsers, cmdStr) {
+			for _, opt := range def.Options {
+				if val, ok := opt["authenticate"].(bool); ok {
+					noPasswd = !val
+				}
+				if val, ok := opt["noexec"].(bool); ok {
+					noExec = val
+				}
+			}
+		}
+	}
+
+	for _, opt := range csOptions {
+		if val, ok := opt["authenticate"].(bool); ok {
+			noPasswd = !val
+		}
+		if val, ok := opt["noexec"].(bool); ok {
+			noExec = val
+		}
+	}
+
+	return noPasswd, noExec
+}
+
+func bindingMatches(binding []Member, policy *SudoersPolicy, users []Member, hosts []Member, runasUsers []Member, cmdStr string) bool {
+	exePath := ""
+	if parts := strings.Fields(cmdStr); len(parts) > 0 {
+		exePath = parts[0]
+	}
+	for _, b := range binding {
+		if b.Negated {
+			continue
+		}
+		name := b.rawName()
+		if name == "ALL" {
+			return true
+		}
+		if b.Command != "" && (b.Command == cmdStr || b.Command == exePath) {
+			return true
+		}
+		if b.CommandAlias != "" {
+			for _, resolved := range resolveCommands(b, policy) {
+				if !resolved.Negated && (resolved.Command == cmdStr || resolved.Command == exePath) {
+					return true
+				}
+			}
+		}
+		for _, u := range users {
+			if !u.Negated && u.rawName() == name && name != "" {
+				return true
+			}
+		}
+		for _, h := range hosts {
+			if !h.Negated && h.rawName() == name && name != "" {
+				return true
+			}
+		}
+		for _, r := range runasUsers {
+			if !r.Negated && r.rawName() == name && name != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
