@@ -6,14 +6,24 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: Test and Lint
-    runs-on: ubuntu-latest
+    name: Test and Lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout Source Code
@@ -24,18 +34,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version-file: 'go.mod'
           cache: true
 
-      - name: Verify Dependencies
-        run: go mod download
-
-      - name: Check Module Tidiness
+      - name: Verify Module Tidiness and Checksums
+        if: matrix.os == 'ubuntu-latest'
         run: |
+          go mod verify
           go mod tidy
           git diff --exit-code go.mod go.sum
 
       - name: Check Code Formatting
+        if: matrix.os == 'ubuntu-latest'
         run: |
           if [ -n "$(gofmt -l .)" ]; then
             echo "The following files are not formatted properly:"
@@ -46,13 +56,47 @@ jobs:
       - name: Run Go Vet (Static Analysis)
         run: go vet ./...
 
-      - name: Run Unit Tests
+      - name: Run Go Vulnerability Check (govulncheck)
+        if: matrix.os == 'ubuntu-latest'
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Ensure cvtsudoers Oracle Is Available
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          if ! command -v cvtsudoers >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y sudo
+          fi
+          cvtsudoers -V
+
+      - name: Run Unit Tests and Oracle Parity Suite (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          SUDO_CHECK_REQUIRE_ORACLE: "1"
         run: go test -v -race -coverprofile=coverage.out ./...
 
-      - name: Display Coverage Summary
-        run: go tool cover -func=coverage.out
+      - name: Run Unit Tests (Windows)
+        if: matrix.os == 'windows-latest'
+        run: go test -v -race ./...
+
+      - name: Publish Coverage Summary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go tool cover -func=coverage.out | tee coverage.txt
+          TOTAL_COV=$(tail -n 1 coverage.txt | awk '{print $3}')
+          {
+            echo "### Go Test Coverage: ${TOTAL_COV}"
+            echo ""
+            echo "<details><summary>Function Coverage Breakdown</summary>"
+            echo ""
+            echo '```text'
+            cat coverage.txt
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Coverage Report
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: coverage-report
@@ -63,9 +107,11 @@ jobs:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
-        goos: [linux, windows]
+        goos: [linux, darwin, windows]
         goarch: [amd64, arm64]
         exclude:
           - goos: windows
@@ -80,24 +126,34 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26.x'
+          go-version-file: 'go.mod'
           cache: true
 
       - name: Build Standalone Binary (Cross-Compilation)
+        env:
+          TARGET_GOOS: ${{ matrix.goos }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          VERSION=${GITHUB_REF_NAME:-dev}
-          COMMIT=${GITHUB_SHA::8}
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          LDFLAGS="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE"
-          
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BINARY_NAME="sudo-check-${{ matrix.goos }}-${{ matrix.goarch }}.exe"
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          COMMIT="${GITHUB_SHA::8}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
+
+          if [ "${TARGET_GOOS}" = "windows" ]; then
+            BINARY_NAME="sudo-check-${TARGET_GOOS}-${TARGET_GOARCH}.exe"
           else
-            BINARY_NAME="sudo-check-${{ matrix.goos }}-${{ matrix.goarch }}"
+            BINARY_NAME="sudo-check-${TARGET_GOOS}-${TARGET_GOARCH}"
           fi
-          
-          env CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="$LDFLAGS" -trimpath -v -o dist/$BINARY_NAME
+
+          env CGO_ENABLED=0 GOOS="${TARGET_GOOS}" GOARCH="${TARGET_GOARCH}" \
+            go build -ldflags="${LDFLAGS}" -trimpath -v -o "dist/${BINARY_NAME}"
+
+      - name: Smoke Test Native Binary
+        if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
+        run: |
+          ./dist/sudo-check-linux-amd64 version
+          ./dist/sudo-check-linux-amd64 scan testdata/corpus/distros/01_debian_ubuntu_default.sudoers -f json >/dev/null
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -110,6 +166,7 @@ jobs:
     name: Create Tagged Release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
@@ -136,14 +193,21 @@ jobs:
           ENRICH: true
           UPLOAD: false
 
+      - name: Generate SHA256 Checksums
+        run: |
+          cd dist
+          sha256sum sudo-check-* > SHA256SUMS
+          cat SHA256SUMS
+
       - name: Create Release and Upload Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             echo "Release already exists. Uploading assets..."
-            gh release upload "${{ github.ref_name }}" dist/* --clobber
+            gh release upload "${RELEASE_TAG}" dist/* --clobber
           else
             echo "Creating new release..."
-            gh release create "${{ github.ref_name }}" dist/* --title "Release ${{ github.ref_name }}" --generate-notes
+            gh release create "${RELEASE_TAG}" dist/* --title "Release ${RELEASE_TAG}" --generate-notes
           fi

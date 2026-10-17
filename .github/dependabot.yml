@@ -3,16 +3,27 @@ updates:
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
-      interval: daily
+      interval: weekly
     commit-message:
       prefix: "go-deps"
     assignees:
-    - "Harvester57"
+      - "Harvester57"
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: "github-actions"
     directory: "/"
+    schedule:
+      interval: weekly
     commit-message:
       prefix: "actions"
     assignees:
-    - "Harvester57"
-    schedule:
-      interval: daily
+      - "Harvester57"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

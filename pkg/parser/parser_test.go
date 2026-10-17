@@ -425,6 +425,9 @@ func runCvtsudoersOracle(t *testing.T, sudoersInput string) *audit.SudoersPolicy
 	}
 
 	if !cvtResolved {
+		if os.Getenv("SUDO_CHECK_REQUIRE_ORACLE") == "1" {
+			t.Fatalf("cvtsudoers not available locally or via WSL, but SUDO_CHECK_REQUIRE_ORACLE=1 is set")
+		}
 		t.Skip("cvtsudoers not available locally or via WSL; skipping oracle comparison")
 	}
 
