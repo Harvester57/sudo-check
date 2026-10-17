@@ -3,6 +3,7 @@ package audit
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"sudo-check/pkg/gtfobins"
 	"testing"
 )
@@ -130,6 +131,31 @@ func TestAuditDefaults(t *testing.T) {
 		assertFindingPresent(t, findings, "SUDO-DEF-003")
 		assertFindingPresent(t, findings, "SUDO-DEF-011")
 		assertFindingAbsent(t, findings, "SUDO-DEF-004")
+	})
+
+	t.Run("MultiLineGlobalDefaultsLineTracking", func(t *testing.T) {
+		policy := &SudoersPolicy{Defaults: []DefaultBinding{
+			{
+				File:    "/etc/sudoers",
+				Line:    5,
+				Options: []Option{{"env_reset": true}},
+			},
+			{
+				File:    "/etc/sudoers",
+				Line:    27,
+				Options: []Option{{"visiblepw": true}},
+			},
+		}}
+		findings := AuditDefaults(policy)
+		foundLine27 := false
+		for _, f := range findings {
+			if f.ID == "SUDO-DEF-005" && f.Context == "/etc/sudoers" && f.Line == 27 {
+				foundLine27 = true
+			}
+		}
+		if !foundLine27 {
+			t.Errorf("Expected SUDO-DEF-005 to report exact line 27 on /etc/sudoers, got: %+v", findings)
+		}
 	})
 
 	t.Run("DangerousEnvKeep", func(t *testing.T) {
@@ -970,10 +996,83 @@ func TestRunAudit_VulnerablePolicy(t *testing.T) {
 		if f.ID == "SUDO-GTFO-001" || f.ID == "SUDO-GTFO-002" || f.ID == "SUDO-GTFO-003" {
 			hasGTFO = true
 		}
+		if f.RemediationCode == "" {
+			t.Errorf("Expected non-empty RemediationCode for finding %s (%s)", f.ID, f.Title)
+		}
 	}
 	if !hasGTFO {
 		t.Error("Expected GTFObins findings from vulnerable policy")
 	}
+}
+
+func TestRemediationCodePopulation(t *testing.T) {
+	t.Run("ScopedDefaultsAndSecurePathSanitize", func(t *testing.T) {
+		policy := &SudoersPolicy{
+			Defaults: []DefaultBinding{
+				{
+					Options: []Option{
+						{"secure_path": "/usr/sbin:/tmp:/usr/bin:./bin:"},
+					},
+				},
+				{
+					Binding: []Member{{Username: "alice"}},
+					Options: []Option{
+						{"env_reset": false},
+						{"operation": "list_add", "env_keep": []any{"LD_PRELOAD"}},
+						{"umask": "0022"},
+					},
+				},
+			},
+		}
+		findings := AuditDefaults(policy)
+		for _, f := range findings {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+			if f.ID == "SUDO-DEF-002" && !strings.Contains(f.RemediationCode, `Defaults secure_path="/usr/sbin:/usr/bin"`) {
+				t.Errorf("Expected sanitized secure_path in SUDO-DEF-002 RemediationCode, got %q", f.RemediationCode)
+			}
+			if f.ID == "SUDO-DEF-004" && !strings.Contains(f.RemediationCode, "Defaults:alice ") {
+				t.Errorf("Expected scoped Defaults:alice directive in SUDO-DEF-004 RemediationCode, got %q", f.RemediationCode)
+			}
+		}
+	})
+
+	t.Run("SystemPermissionsAndVersionRemediationCode", func(t *testing.T) {
+		sysPerm := evaluateSudoersFilePermissions("/etc/sudoers", 0666, 1000, 1000, true)
+		for _, f := range sysPerm {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+		}
+		dirPerm := evaluateSudoersFilePermissions("/etc/sudoers.d", 0777, 1000, 1000, true)
+		for _, f := range dirPerm {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+		}
+		binPerm := evaluateSudoBinaryPermissions("/usr/bin/sudo", 0777, 1000, 1000, true)
+		for _, f := range binPerm {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+		}
+		targetPerm := evaluateTargetBinaryPermissions("/usr/local/bin/deploy.sh", 0777, 1000, true)
+		for _, f := range targetPerm {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+		}
+		verFindings, err := AuditSudoVersion("Sudo version 1.8.27")
+		if err != nil {
+			t.Fatalf("AuditSudoVersion failed: %v", err)
+		}
+		for _, f := range verFindings {
+			if f.RemediationCode == "" {
+				t.Errorf("Expected RemediationCode on %s, got empty", f.ID)
+			}
+		}
+	})
 }
 
 func TestRunAudit_CleanPolicy(t *testing.T) {

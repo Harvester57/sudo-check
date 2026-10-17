@@ -137,6 +137,11 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 
 		if len(negatedUsers) > 0 || len(negatedHosts) > 0 {
 			negList := append(append([]string(nil), negatedUsers...), negatedHosts...)
+			posUser := "AUTHORIZED_USERS"
+			posHost := hostsStr
+			if len(negatedHosts) > 0 || posHost == "" {
+				posHost = "ALL"
+			}
 			findings = append(findings, Finding{
 				ID:          "SUDO-CMD-008",
 				Title:       "Negated User or Host Specification",
@@ -144,9 +149,14 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 				Severity:    SeverityHigh,
 				User:        usersStr,
 				Host:        hostsStr,
+				Context:     spec.File,
 				Line:        spec.Line,
 				Remediation: "Avoid using negation (!) in User_List or Host_List specifications; define explicit positive allowlists instead.",
-				Compliance:  []string{"ANSSI-BP-028 R40"},
+				RemediationCode: fmt.Sprintf(
+					"User_Alias %s = alice, bob\n%s %s = (root) /usr/bin/id \"\"",
+					posUser, posUser, posHost,
+				),
+				Compliance: []string{"ANSSI-BP-028 R40"},
 			})
 		}
 
@@ -164,14 +174,19 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 					User:        usersStr,
 					Host:        hostsStr,
 					Runas:       runasStr,
+					Context:     spec.File,
 					Line:        spec.Line,
 					Remediation: "Replace negated Runas lists with an explicit positive list of permitted target accounts.",
-					Compliance:  []string{"ANSSI-BP-028 R40"},
+					RemediationCode: fmt.Sprintf(
+						"Runas_Alias ALLOWED_RUNAS = www-data, postgres\n%s %s = (ALLOWED_RUNAS) /usr/bin/id \"\"",
+						usersStr, hostsStr,
+					),
+					Compliance: []string{"ANSSI-BP-028 R40"},
 				})
 			}
 
 			// Audit dangerous per-command options (SETENV, sudoedit_follow, runchroot, runcwd)
-			findings = append(findings, auditCmndSpecOptions(cs.Options, usersStr, hostsStr, runasStr, spec.Line)...)
+			findings = append(findings, auditCmndSpecOptions(cs.Options, usersStr, hostsStr, runasStr, spec.File, spec.Line)...)
 
 			// Gather all commands, resolving any aliases if present
 			var allCmdMembers []Member
@@ -188,29 +203,36 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 				if line == 0 {
 					line = spec.Line
 				}
+				file := cmdMember.File
+				if file == "" {
+					file = spec.File
+				}
 
 				noPasswd, noExec := resolveEffectiveFlags(policy, resolvedUsers, resolvedHosts, resolvedRunasUsers, cmdStr, cs.Options)
 
 				// Check 1: Command Negation Bypass (e.g. !/usr/bin/passwd)
 				if cmdMember.Negated {
 					findings = append(findings, Finding{
-						ID:          "SUDO-CMD-001",
-						Title:       "Negated Command Policy",
-						Description: fmt.Sprintf("The policy contains a negated command '%s' for user(s) [%s]. Sudo command negation is easily bypassed by copying or hardlinking/symlinking the binary, or invoking alternative paths/arguments.", cmdStr, usersStr),
-						Severity:    SeverityHigh,
-						User:        usersStr,
-						Host:        hostsStr,
-						Runas:       runasStr,
-						Command:     cmdStr,
-						Line:        line,
-						Remediation: "Avoid using negated commands (!) to enforce restrictions. Instead, use a strict allowlist of permitted commands.",
-						Compliance:  []string{"ANSSI-BP-028 R40"},
+						ID:              "SUDO-CMD-001",
+						Title:           "Negated Command Policy",
+						Description:     fmt.Sprintf("The policy contains a negated command '%s' for user(s) [%s]. Sudo command negation is easily bypassed by copying or hardlinking/symlinking the binary, or invoking alternative paths/arguments.", cmdStr, usersStr),
+						Severity:        SeverityHigh,
+						User:            usersStr,
+						Host:            hostsStr,
+						Runas:           runasStr,
+						Command:         cmdStr,
+						Context:         file,
+						Line:            line,
+						Remediation:     "Avoid using negated commands (!) to enforce restrictions. Instead, use a strict allowlist of permitted commands.",
+						RemediationCode: fmt.Sprintf("%s %s = (%s) /usr/bin/systemctl status app", usersStr, hostsStr, runasStr),
+						Compliance:      []string{"ANSSI-BP-028 R40"},
 					})
 					continue
 				}
 
 				// Check weak cryptographic digest (SHA-224)
 				if cmdMember.HasWeakDigestOnly() {
+					exeForDigest := strings.Fields(cmdStr)[0]
 					findings = append(findings, Finding{
 						ID:          "SUDO-CMD-012",
 						Title:       "Weak Cryptographic Digest on Command (SHA-224)",
@@ -220,9 +242,14 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Host:        hostsStr,
 						Runas:       runasStr,
 						Command:     cmdStr,
+						Context:     file,
 						Line:        line,
 						Remediation: "Use 'sha256:' or 'sha512:' digests when pinning command integrity in sudoers.",
-						Compliance:  []string{"ANSSI-BP-028"},
+						RemediationCode: fmt.Sprintf(
+							"# 1. Compute SHA-256 digest:\nsha256sum %s\n\n# 2. Pin in sudoers:\n%s %s = (%s) sha256:<64-hex-digest> %s",
+							exeForDigest, usersStr, hostsStr, runasStr, cmdStr,
+						),
+						Compliance: []string{"ANSSI-BP-028"},
 					})
 				}
 
@@ -232,46 +259,39 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 					title := "Full Root Privileges Allowed"
 					desc := fmt.Sprintf("The policy allows user(s) [%s] to run any command (ALL) on host(s) [%s] as [%s]. This grants full administrative control.", usersStr, hostsStr, runasStr)
 					remediation := "Restrict privileges to only the specific commands required for the user's role."
+					remediationCode := fmt.Sprintf(
+						"Cmnd_Alias ALLOWED_CMDS = /usr/bin/systemctl restart app, /usr/bin/systemctl status app\n%s %s = (%s) ALLOWED_CMDS",
+						usersStr, hostsStr, runasStr,
+					)
 					id := "SUDO-CMD-002"
 
 					if noPasswd {
 						sev = SeverityCritical
 						title = "Passwordless Full Root Privileges Allowed (NOPASSWD)"
 						desc = fmt.Sprintf("The policy allows user(s) [%s] to run any command (ALL) on host(s) [%s] as [%s] without a password (NOPASSWD). Any compromise of this user account leads to immediate privilege escalation.", usersStr, hostsStr, runasStr)
+						remediationCode = fmt.Sprintf(
+							"%s %s = (%s) PASSWD: /usr/bin/systemctl restart app",
+							usersStr, hostsStr, runasStr,
+						)
 						id = "SUDO-CMD-003"
 					}
 
 					findings = append(findings, Finding{
-						ID:          id,
-						Title:       title,
-						Description: desc,
-						Severity:    sev,
-						User:        usersStr,
-						Host:        hostsStr,
-						Runas:       runasStr,
-						Command:     cmdStr,
-						Line:        line,
-						Remediation: remediation,
-						Compliance:  []string{"ANSSI-BP-028", "CIS-5.2.4"},
+						ID:              id,
+						Title:           title,
+						Description:     desc,
+						Severity:        sev,
+						User:            usersStr,
+						Host:            hostsStr,
+						Runas:           runasStr,
+						Command:         cmdStr,
+						Context:         file,
+						Line:            line,
+						Remediation:     remediation,
+						RemediationCode: remediationCode,
+						Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4"},
 					})
 					continue
-				}
-
-				// Check 3: Wildcards in command spec (e.g., /usr/bin/cat /var/log/*)
-				if wildcardRegex.MatchString(cmdStr) {
-					findings = append(findings, Finding{
-						ID:          "SUDO-CMD-004",
-						Title:       "Wildcard in Command Definition",
-						Description: fmt.Sprintf("The command '%s' allowed for user(s) [%s] contains wildcards. Arguments matching wildcards in sudoers can often be bypassed using directory traversals (e.g. '/var/log/../../etc/shadow') or option injection.", cmdStr, usersStr),
-						Severity:    SeverityMedium,
-						User:        usersStr,
-						Host:        hostsStr,
-						Runas:       runasStr,
-						Command:     cmdStr,
-						Line:        line,
-						Remediation: "Avoid wildcards in command paths. Use specific paths or write wrapper scripts that validate inputs before executing commands.",
-						Compliance:  []string{"ANSSI-BP-028"},
-					})
 				}
 
 				// Split command to get the executable path and arguments
@@ -282,37 +302,65 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 				exePath := parts[0]
 				binaryName := path.Base(exePath)
 
+				// Check 3: Wildcards in command spec (e.g., /usr/bin/cat /var/log/*)
+				if wildcardRegex.MatchString(cmdStr) {
+					safeCmdExample := fmt.Sprintf("%s \"\"", exePath)
+					if len(parts) > 1 {
+						cleanArg := wildcardRegex.ReplaceAllString(strings.Join(parts[1:], " "), "explicit_target")
+						safeCmdExample = fmt.Sprintf("%s %s", exePath, cleanArg)
+					}
+					findings = append(findings, Finding{
+						ID:              "SUDO-CMD-004",
+						Title:           "Wildcard in Command Definition",
+						Description:     fmt.Sprintf("The command '%s' allowed for user(s) [%s] contains wildcards. Arguments matching wildcards in sudoers can often be bypassed using directory traversals (e.g. '/var/log/../../etc/shadow') or option injection.", cmdStr, usersStr),
+						Severity:        SeverityMedium,
+						User:            usersStr,
+						Host:            hostsStr,
+						Runas:           runasStr,
+						Command:         cmdStr,
+						Context:         file,
+						Line:            line,
+						Remediation:     "Avoid wildcards in command paths. Use specific paths or write wrapper scripts that validate inputs before executing commands.",
+						RemediationCode: fmt.Sprintf("%s %s = (%s) %s", usersStr, hostsStr, runasStr, safeCmdExample),
+						Compliance:      []string{"ANSSI-BP-028"},
+					})
+				}
+
 				// Special handling for sudoedit
 				if exePath == "sudoedit" {
 					if len(parts) == 1 {
 						findings = append(findings, Finding{
-							ID:          "SUDO-CMD-006",
-							Title:       "Missing Command Argument Restrictions",
-							Description: fmt.Sprintf("The command '%s' allowed for user(s) [%s] does not specify target file restrictions, allowing arbitrary files to be edited as [%s].", cmdStr, usersStr, runasStr),
-							Severity:    SeverityCritical,
-							User:        usersStr,
-							Host:        hostsStr,
-							Runas:       runasStr,
-							Command:     cmdStr,
-							Line:        line,
-							Remediation: "Explicitly specify the exact absolute file paths that may be edited with 'sudoedit'.",
-							Compliance:  []string{"ANSSI-BP-028"},
+							ID:              "SUDO-CMD-006",
+							Title:           "Missing Command Argument Restrictions",
+							Description:     fmt.Sprintf("The command '%s' allowed for user(s) [%s] does not specify target file restrictions, allowing arbitrary files to be edited as [%s].", cmdStr, usersStr, runasStr),
+							Severity:        SeverityCritical,
+							User:            usersStr,
+							Host:            hostsStr,
+							Runas:           runasStr,
+							Command:         cmdStr,
+							Context:         file,
+							Line:            line,
+							Remediation:     "Explicitly specify the exact absolute file paths that may be edited with 'sudoedit'.",
+							RemediationCode: fmt.Sprintf("%s %s = (%s) sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
+							Compliance:      []string{"ANSSI-BP-028"},
 						})
 					} else {
 						for _, arg := range parts[1:] {
 							if isSensitiveSudoeditTarget(arg) {
 								findings = append(findings, Finding{
-									ID:          "SUDO-CMD-010",
-									Title:       "sudoedit Permitted on Sensitive System File",
-									Description: fmt.Sprintf("The rule allows user(s) [%s] to edit sensitive system path '%s' via sudoedit as [%s], enabling direct privilege escalation or policy modification.", usersStr, arg, runasStr),
-									Severity:    SeverityCritical,
-									User:        usersStr,
-									Host:        hostsStr,
-									Runas:       runasStr,
-									Command:     cmdStr,
-									Line:        line,
-									Remediation: "Remove sensitive system configuration and authentication files from 'sudoedit' rules.",
-									Compliance:  []string{"ANSSI-BP-028"},
+									ID:              "SUDO-CMD-010",
+									Title:           "sudoedit Permitted on Sensitive System File",
+									Description:     fmt.Sprintf("The rule allows user(s) [%s] to edit sensitive system path '%s' via sudoedit as [%s], enabling direct privilege escalation or policy modification.", usersStr, arg, runasStr),
+									Severity:        SeverityCritical,
+									User:            usersStr,
+									Host:            hostsStr,
+									Runas:           runasStr,
+									Command:         cmdStr,
+									Context:         file,
+									Line:            line,
+									Remediation:     "Remove sensitive system configuration and authentication files from 'sudoedit' rules.",
+									RemediationCode: fmt.Sprintf("%s %s = (%s) sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
+									Compliance:      []string{"ANSSI-BP-028"},
 								})
 								break
 							}
@@ -323,18 +371,24 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 
 				// Check for relative command path or writable directory path (SUDO-CMD-011)
 				if !strings.HasPrefix(exePath, "/") {
+					argSuffix := "\"\""
+					if len(parts) > 1 {
+						argSuffix = strings.Join(parts[1:], " ")
+					}
 					findings = append(findings, Finding{
-						ID:          "SUDO-CMD-011",
-						Title:       "Relative Command Path in Sudoers Policy",
-						Description: fmt.Sprintf("The command '%s' allowed for user(s) [%s] uses a non-absolute executable path '%s'. Sudoers rules must always use full absolute paths to prevent PATH hijacking.", cmdStr, usersStr, exePath),
-						Severity:    SeverityHigh,
-						User:        usersStr,
-						Host:        hostsStr,
-						Runas:       runasStr,
-						Command:     cmdStr,
-						Line:        line,
-						Remediation: "Specify the full absolute path to the executable (e.g. '/usr/bin/" + binaryName + "').",
-						Compliance:  []string{"ANSSI-BP-028"},
+						ID:              "SUDO-CMD-011",
+						Title:           "Relative Command Path in Sudoers Policy",
+						Description:     fmt.Sprintf("The command '%s' allowed for user(s) [%s] uses a non-absolute executable path '%s'. Sudoers rules must always use full absolute paths to prevent PATH hijacking.", cmdStr, usersStr, exePath),
+						Severity:        SeverityHigh,
+						User:            usersStr,
+						Host:            hostsStr,
+						Runas:           runasStr,
+						Command:         cmdStr,
+						Context:         file,
+						Line:            line,
+						Remediation:     "Specify the full absolute path to the executable (e.g. '/usr/bin/" + binaryName + "').",
+						RemediationCode: fmt.Sprintf("%s %s = (%s) /usr/bin/%s %s", usersStr, hostsStr, runasStr, binaryName, argSuffix),
+						Compliance:      []string{"ANSSI-BP-028"},
 					})
 				} else if isWritableOrTempPath(exePath) {
 					findings = append(findings, Finding{
@@ -346,31 +400,42 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Host:        hostsStr,
 						Runas:       runasStr,
 						Command:     cmdStr,
+						Context:     file,
 						Line:        line,
 						Remediation: "Move scripts and binaries to a root-owned directory with strict permissions (such as '/usr/local/sbin' mode 0755) and pin their SHA-256 digest.",
-						Compliance:  []string{"ANSSI-BP-028"},
+						RemediationCode: fmt.Sprintf(
+							"sudo install -o root -g root -m 0755 %s /usr/local/sbin/%s\nsudo sha256sum /usr/local/sbin/%s\n# In visudo:\n%s %s = (%s) sha256:<digest> /usr/local/sbin/%s \"\"",
+							exePath, binaryName, binaryName, usersStr, hostsStr, runasStr, binaryName,
+						),
+						Compliance: []string{"ANSSI-BP-028"},
 					})
 				}
 
 				// Check 5: Missing Command Argument Restrictions (SUDO-CMD-006)
 				if len(parts) == 1 {
 					findings = append(findings, Finding{
-						ID:          "SUDO-CMD-006",
-						Title:       "Missing Command Argument Restrictions",
-						Description: fmt.Sprintf("The command '%s' allowed for user(s) [%s] does not specify any argument restrictions. This permits the user to run the command with arbitrary arguments, which can be abused to bypass restrictions or inject options.", cmdStr, usersStr),
-						Severity:    SeverityMedium,
-						User:        usersStr,
-						Host:        hostsStr,
-						Runas:       runasStr,
-						Command:     cmdStr,
-						Line:        line,
-						Remediation: "Strictly specify the allowed arguments. If the command should be run without any arguments, append empty double quotes '\"\"' to the command (e.g., 'dmesg \"\"').",
-						Compliance:  []string{"ANSSI-BP-028 R41"},
+						ID:              "SUDO-CMD-006",
+						Title:           "Missing Command Argument Restrictions",
+						Description:     fmt.Sprintf("The command '%s' allowed for user(s) [%s] does not specify any argument restrictions. This permits the user to run the command with arbitrary arguments, which can be abused to bypass restrictions or inject options.", cmdStr, usersStr),
+						Severity:        SeverityMedium,
+						User:            usersStr,
+						Host:            hostsStr,
+						Runas:           runasStr,
+						Command:         cmdStr,
+						Context:         file,
+						Line:            line,
+						Remediation:     "Strictly specify the allowed arguments. If the command should be run without any arguments, append empty double quotes '\"\"' to the command (e.g., 'dmesg \"\"').",
+						RemediationCode: fmt.Sprintf("%s %s = (%s) %s \"\"", usersStr, hostsStr, runasStr, exePath),
+						Compliance:      []string{"ANSSI-BP-028 R41"},
 					})
 				}
 
 				// Check 6: Direct Text Editor Execution (SUDO-CMD-007)
 				if isEditorBinary(binaryName) {
+					targetFile := "/etc/myapp/config.conf"
+					if len(parts) > 1 && parts[1] != "\"\"" && !wildcardRegex.MatchString(parts[1]) && !isSensitiveSudoeditTarget(parts[1]) {
+						targetFile = strings.Join(parts[1:], " ")
+					}
 					findings = append(findings, Finding{
 						ID:          "SUDO-CMD-007",
 						Title:       "Direct Text Editor Execution via Sudo",
@@ -380,9 +445,14 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Host:        hostsStr,
 						Runas:       runasStr,
 						Command:     cmdStr,
+						Context:     file,
 						Line:        line,
 						Remediation: "Replace direct text editor execution rules with 'sudoedit' permissions for specific files.",
-						Compliance:  []string{"ANSSI-BP-028 R42"},
+						RemediationCode: fmt.Sprintf(
+							"Defaults !sudoedit_follow, sudoedit_checkdir\n%s %s = (%s) sudoedit %s",
+							usersStr, hostsStr, runasStr, targetFile,
+						),
+						Compliance: []string{"ANSSI-BP-028 R42"},
 					})
 				}
 
@@ -420,35 +490,45 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							commentStr = fmt.Sprintf("\nGTFObins Context: %s", bypass.Comment)
 						}
 
+						gtfoRemCode := buildGTFORemediationCode(usersStr, hostsStr, runasStr, exePath, binaryName, parts, bypass.Function)
+
 						findings = append(findings, Finding{
-							ID:          id,
-							Title:       title,
-							Description: desc + commentStr,
-							Severity:    sev,
-							User:        usersStr,
-							Host:        hostsStr,
-							Runas:       runasStr,
-							Command:     cmdStr,
-							Line:        line,
-							Remediation: fmt.Sprintf("Remove this binary from sudoers or replace it with a wrapper script. Example exploit command:\n%s", bypass.Code),
-							ExploitPoC:  bypass.Code,
-							Compliance:  []string{"ANSSI-BP-028", "MITRE-T1548.003"},
+							ID:              id,
+							Title:           title,
+							Description:     desc + commentStr,
+							Severity:        sev,
+							User:            usersStr,
+							Host:            hostsStr,
+							Runas:           runasStr,
+							Command:         cmdStr,
+							Context:         file,
+							Line:            line,
+							Remediation:     fmt.Sprintf("Remove this binary from sudoers or replace it with a wrapper script. Example exploit command:\n%s", bypass.Code),
+							RemediationCode: gtfoRemCode,
+							ExploitPoC:      bypass.Code,
+							Compliance:      []string{"ANSSI-BP-028", "MITRE-T1548.003"},
 						})
 					}
 				} else {
 					if noPasswd {
+						lockedCmd := cmdStr
+						if len(parts) == 1 {
+							lockedCmd = cmdStr + " \"\""
+						}
 						findings = append(findings, Finding{
-							ID:          "SUDO-CMD-005",
-							Title:       "Passwordless Specific Command Execution Allowed (NOPASSWD)",
-							Description: fmt.Sprintf("The user(s) [%s] are permitted to run the specific command '%s' as [%s] without entering a password (NOPASSWD). While restricted to this binary, any command running passwordless expands the local attack surface if it has argument parsing or script vulnerabilities.", usersStr, cmdStr, runasStr),
-							Severity:    SeverityLow,
-							User:        usersStr,
-							Host:        hostsStr,
-							Runas:       runasStr,
-							Command:     cmdStr,
-							Line:        line,
-							Remediation: "Ensure that passwordless privileges are strictly necessary. If possible, require authentication or implement strict input validation inside target wrapper scripts.",
-							Compliance:  []string{"ANSSI-BP-028", "CIS-5.2.4"},
+							ID:              "SUDO-CMD-005",
+							Title:           "Passwordless Specific Command Execution Allowed (NOPASSWD)",
+							Description:     fmt.Sprintf("The user(s) [%s] are permitted to run the specific command '%s' as [%s] without entering a password (NOPASSWD). While restricted to this binary, any command running passwordless expands the local attack surface if it has argument parsing or script vulnerabilities.", usersStr, cmdStr, runasStr),
+							Severity:        SeverityLow,
+							User:            usersStr,
+							Host:            hostsStr,
+							Runas:           runasStr,
+							Command:         cmdStr,
+							Context:         file,
+							Line:            line,
+							Remediation:     "Ensure that passwordless privileges are strictly necessary. If possible, require authentication or implement strict input validation inside target wrapper scripts.",
+							RemediationCode: fmt.Sprintf("%s %s = (%s) PASSWD: NOEXEC: %s", usersStr, hostsStr, runasStr, lockedCmd),
+							Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4"},
 						})
 					}
 				}
@@ -459,61 +539,87 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 	return findings
 }
 
-func auditCmndSpecOptions(options []Option, usersStr, hostsStr, runasStr string, line int) []Finding {
+func buildGTFORemediationCode(usersStr, hostsStr, runasStr, exePath, binaryName string, parts []string, fn string) string {
+	if isEditorBinary(binaryName) {
+		targetFile := "/etc/myapp/config.conf"
+		if len(parts) > 1 && parts[1] != "\"\"" && !wildcardRegex.MatchString(parts[1]) && !isSensitiveSudoeditTarget(parts[1]) {
+			targetFile = strings.Join(parts[1:], " ")
+		}
+		return fmt.Sprintf("Defaults !sudoedit_follow, sudoedit_checkdir\n%s %s = (%s) sudoedit %s", usersStr, hostsStr, runasStr, targetFile)
+	}
+	if fn == "shell" || fn == "command" {
+		lockedCmd := exePath + " \"\""
+		if len(parts) > 1 && !wildcardRegex.MatchString(strings.Join(parts[1:], " ")) {
+			lockedCmd = strings.Join(parts, " ")
+		}
+		return fmt.Sprintf("# Enforce NOEXEC and explicit arguments, or replace with a dedicated wrapper script:\n%s %s = (%s) PASSWD: NOEXEC: %s", usersStr, hostsStr, runasStr, lockedCmd)
+	}
+	return fmt.Sprintf("# Replace direct '%s' (%s) access with a root-owned wrapper script:\n%s %s = (%s) PASSWD: NOEXEC: sha256:<digest> /usr/local/sbin/safe-%s-wrapper.sh \"\"", binaryName, fn, usersStr, hostsStr, runasStr, binaryName)
+}
+
+func auditCmndSpecOptions(options []Option, usersStr, hostsStr, runasStr, file string, line int) []Finding {
 	var findings []Finding
 	for _, opt := range options {
 		if val, ok := opt["setenv"].(bool); ok && val {
 			findings = append(findings, Finding{
-				ID:          "SUDO-CMD-009",
-				Title:       "Environment Override Permitted on Command (SETENV)",
-				Description: fmt.Sprintf("The command specification for user(s) [%s] includes the 'SETENV' tag, allowing the user to pass arbitrary environment variables to commands run as [%s].", usersStr, runasStr),
-				Severity:    SeverityHigh,
-				User:        usersStr,
-				Host:        hostsStr,
-				Runas:       runasStr,
-				Line:        line,
-				Remediation: "Remove the 'SETENV:' tag or replace it with 'NOSETENV:'.",
-				Compliance:  []string{"ANSSI-BP-028"},
+				ID:              "SUDO-CMD-009",
+				Title:           "Environment Override Permitted on Command (SETENV)",
+				Description:     fmt.Sprintf("The command specification for user(s) [%s] includes the 'SETENV' tag, allowing the user to pass arbitrary environment variables to commands run as [%s].", usersStr, runasStr),
+				Severity:        SeverityHigh,
+				User:            usersStr,
+				Host:            hostsStr,
+				Runas:           runasStr,
+				Context:         file,
+				Line:            line,
+				Remediation:     "Remove the 'SETENV:' tag or replace it with 'NOSETENV:'.",
+				RemediationCode: fmt.Sprintf("%s %s = (%s) NOSETENV: /usr/bin/command \"\"", usersStr, hostsStr, runasStr),
+				Compliance:      []string{"ANSSI-BP-028"},
 			})
 		}
 		if val, ok := opt["sudoedit_follow"].(bool); ok && val {
 			findings = append(findings, Finding{
-				ID:          "SUDO-CMD-009",
-				Title:       "Symlink Following Permitted on Command (FOLLOW)",
-				Description: fmt.Sprintf("The command specification for user(s) [%s] includes the 'FOLLOW' ('sudoedit_follow') tag, allowing symlink redirection when editing files as [%s].", usersStr, runasStr),
-				Severity:    SeverityHigh,
-				User:        usersStr,
-				Host:        hostsStr,
-				Runas:       runasStr,
-				Line:        line,
-				Remediation: "Remove the 'FOLLOW:' tag or explicitly enforce 'NOFOLLOW:'.",
-				Compliance:  []string{"ANSSI-BP-028"},
+				ID:              "SUDO-CMD-009",
+				Title:           "Symlink Following Permitted on Command (FOLLOW)",
+				Description:     fmt.Sprintf("The command specification for user(s) [%s] includes the 'FOLLOW' ('sudoedit_follow') tag, allowing symlink redirection when editing files as [%s].", usersStr, runasStr),
+				Severity:        SeverityHigh,
+				User:            usersStr,
+				Host:            hostsStr,
+				Runas:           runasStr,
+				Context:         file,
+				Line:            line,
+				Remediation:     "Remove the 'FOLLOW:' tag or explicitly enforce 'NOFOLLOW:'.",
+				RemediationCode: fmt.Sprintf("%s %s = (%s) NOFOLLOW: sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
+				Compliance:      []string{"ANSSI-BP-028"},
 			})
 		}
 		if val, ok := opt["runchroot"].(string); ok && val != "" {
 			findings = append(findings, Finding{
-				ID:          "SUDO-CMD-009",
-				Title:       "Per-Command Chroot Specification (CHROOT)",
-				Description: fmt.Sprintf("The command specification for user(s) [%s] sets 'CHROOT=%s'. Per-command chroot in sudoers has been associated with critical vulnerabilities (CVE-2023-27320, CVE-2025-32463) and is deprecated upstream.", usersStr, val),
-				Severity:    SeverityHigh,
-				User:        usersStr,
-				Host:        hostsStr,
-				Runas:       runasStr,
-				Line:        line,
-				Remediation: "Remove the 'CHROOT=' specification from the sudoers rule.",
+				ID:              "SUDO-CMD-009",
+				Title:           "Per-Command Chroot Specification (CHROOT)",
+				Description:     fmt.Sprintf("The command specification for user(s) [%s] sets 'CHROOT=%s'. Per-command chroot in sudoers has been associated with critical vulnerabilities (CVE-2023-27320, CVE-2025-32463) and is deprecated upstream.", usersStr, val),
+				Severity:        SeverityHigh,
+				User:            usersStr,
+				Host:            hostsStr,
+				Runas:           runasStr,
+				Context:         file,
+				Line:            line,
+				Remediation:     "Remove the 'CHROOT=' specification from the sudoers rule.",
+				RemediationCode: fmt.Sprintf("%s %s = (%s) /usr/bin/command \"\"", usersStr, hostsStr, runasStr),
 			})
 		}
 		if val, ok := opt["runcwd"].(string); ok && val == "*" {
 			findings = append(findings, Finding{
-				ID:          "SUDO-CMD-009",
-				Title:       "Unrestricted Per-Command Working Directory (CWD=*)",
-				Description: fmt.Sprintf("The command specification for user(s) [%s] sets 'CWD=*', permitting the invoking user to choose any working directory via 'sudo -D'.", usersStr),
-				Severity:    SeverityMedium,
-				User:        usersStr,
-				Host:        hostsStr,
-				Runas:       runasStr,
-				Line:        line,
-				Remediation: "Restrict 'CWD=' to a fixed, trusted absolute directory or remove it.",
+				ID:              "SUDO-CMD-009",
+				Title:           "Unrestricted Per-Command Working Directory (CWD=*)",
+				Description:     fmt.Sprintf("The command specification for user(s) [%s] sets 'CWD=*', permitting the invoking user to choose any working directory via 'sudo -D'.", usersStr),
+				Severity:        SeverityMedium,
+				User:            usersStr,
+				Host:            hostsStr,
+				Runas:           runasStr,
+				Context:         file,
+				Line:            line,
+				Remediation:     "Restrict 'CWD=' to a fixed, trusted absolute directory or remove it.",
+				RemediationCode: fmt.Sprintf("%s %s = (%s) CWD=/opt/app /usr/bin/command \"\"", usersStr, hostsStr, runasStr),
 			})
 		}
 	}
@@ -679,6 +785,9 @@ func resolveMemberDepth(member Member, policy *SudoersPolicy, kind aliasKind, de
 				}
 				if m.Line == 0 {
 					m.Line = member.Line
+				}
+				if m.File == "" {
+					m.File = member.File
 				}
 				resolved = append(resolved, resolveMemberDepth(m, policy, kind, depth+1)...)
 			}
