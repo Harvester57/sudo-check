@@ -101,6 +101,11 @@ type htmlReportData struct {
 	PrincipalSummaries  []htmlPrincipalSummary
 	RuleSummaries       []htmlRuleSummary
 	ComplianceSummaries []htmlComplianceSummary
+	FrameworkGroups     []FrameworkCatalogGroup
+	TotalRequirements   int
+	TriggeredReqsCount  int
+	TemplateSections    []HardenedTemplateSection
+	TraceabilityRows    []TraceabilityRow
 }
 
 func severityBadgeClass(sev audit.Severity) string {
@@ -468,7 +473,8 @@ func buildHTMLReportData(result *audit.AuditResult) htmlReportData {
 
 		// Compliance summary
 		for _, c := range v.Compliance {
-			compMap[c]++
+			normComp := normalizeComplianceKey(c)
+			compMap[normComp]++
 		}
 	}
 
@@ -564,6 +570,10 @@ func buildHTMLReportData(result *audit.AuditResult) htmlReportData {
 	} else if data.TotalCount >= 20 {
 		data.DefaultGroupBy = "RULE"
 	}
+
+	data.FrameworkGroups, data.TotalRequirements, data.TriggeredReqsCount = buildFrameworkCatalog(allViews)
+	data.TemplateSections = buildHardenedTemplateSections()
+	data.TraceabilityRows = buildTraceabilityMatrix()
 
 	return data
 }
@@ -1141,6 +1151,69 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-color: var(--panel-border-strong);
         }
 
+        .policy-filter-group {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            padding: 0.2rem 0.3rem;
+            background: var(--surface-subtle);
+            border: 1px solid var(--panel-border);
+            border-radius: 9px;
+            transition: border-color 0.15s, background-color 0.15s;
+        }
+
+        .policy-filter-group.has-active-policy {
+            border-color: rgba(99, 102, 241, 0.45);
+            background: rgba(99, 102, 241, 0.04);
+        }
+
+        .policy-filter-group .filter-btn-parent {
+            border-color: transparent;
+            background: transparent;
+            font-weight: 600;
+            padding: 0.28rem 0.65rem;
+            border-radius: 6px;
+        }
+
+        .policy-filter-group .filter-btn-parent.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+        }
+
+        .policy-filter-group .filter-btn-parent.parent-context:not(.active) {
+            color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .policy-subfilters {
+            display: inline-flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 0.22rem;
+            padding-left: 0.35rem;
+            border-left: 1px solid var(--panel-border-strong);
+        }
+
+        .policy-subfilters .filter-btn-sub {
+            border-color: transparent;
+            background: transparent;
+            font-size: 0.75rem;
+            padding: 0.24rem 0.55rem;
+            border-radius: 5px;
+            color: var(--text-muted);
+        }
+
+        .policy-subfilters .filter-btn-sub:hover:not(.active) {
+            color: var(--text-main);
+            background: var(--surface-hover);
+        }
+
+        .policy-subfilters .filter-btn-sub.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+        }
+
         .view-mode-group {
             display: inline-flex;
             border: 1px solid var(--panel-border);
@@ -1493,24 +1566,34 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .finding-details-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-            gap: 0.65rem 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: safe center;
+            gap: 0.5rem 1.5rem;
             background: var(--surface-subtle);
-            padding: 0.7rem 0.95rem;
+            padding: 0.65rem 0.95rem;
             border-radius: 8px;
             font-size: 0.84rem;
             border: 1px solid var(--panel-border);
         }
 
         .finding-detail-item {
-            overflow: hidden;
-            text-overflow: ellipsis;
+            display: inline-flex;
+            align-items: baseline;
+            gap: 0.35rem;
+            min-inline-size: 0;
+            max-inline-size: 100%;
         }
 
         .finding-detail-item strong {
             color: var(--text-muted);
-            margin-right: 0.4rem;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .finding-detail-item span,
+        .finding-detail-item code {
+            overflow-wrap: anywhere;
         }
 
         .clickable-meta {
@@ -1704,11 +1787,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-top: 1px solid var(--panel-border);
         }
 
-        /* When grouped by RULE, hide redundant per-card remediation unless card is explicitly expanded */
-        .finding-group[data-group-kind="RULE"] .finding-card:not(.is-expanded) .finding-remediation {
-            display: none;
-        }
-
         .no-findings {
             text-align: center;
             padding: 3rem;
@@ -1716,6 +1794,396 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border: 1px solid var(--panel-border);
             border-radius: 14px;
             color: var(--text-muted);
+        }
+
+        /* Focus Indicators (Modern Web Guidance accessibility) */
+        :where(button, a, select, input, summary, pre):focus-visible {
+            outline: 2px solid var(--accent-primary);
+            outline-offset: 2px;
+        }
+
+        /* Top-Level WAI-ARIA View Tabs */
+        .view-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 0.45rem;
+            margin-bottom: 1.35rem;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            box-shadow: 0 4px 20px var(--shadow-glow);
+            backdrop-filter: blur(12px);
+        }
+
+        .view-tab-btn {
+            flex: 1 1 220px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.55rem;
+            padding: 0.68rem 1rem;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: var(--text-muted);
+            font-family: var(--font-primary);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+        }
+
+        .view-tab-btn:hover:not([aria-selected="true"]) {
+            background: var(--surface-hover);
+            color: var(--text-main);
+        }
+
+        .view-tab-btn[aria-selected="true"] {
+            background: var(--accent-primary);
+            color: #ffffff;
+            border-color: rgba(255, 255, 255, 0.18);
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+        }
+
+        .tab-badge {
+            font-family: var(--font-code);
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 0.12rem 0.48rem;
+            border-radius: 999px;
+            background: rgba(0, 0, 0, 0.25);
+            color: inherit;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        .view-tab-btn:not([aria-selected="true"]) .tab-badge {
+            background: var(--surface-subtle);
+            border-color: var(--panel-border);
+            color: var(--text-muted);
+        }
+
+        .tab-badge-ok {
+            background: rgba(16, 185, 129, 0.18) !important;
+            color: var(--remediation-accent) !important;
+            border-color: rgba(16, 185, 129, 0.35) !important;
+        }
+
+        .view-tab-btn[aria-selected="true"] .tab-badge-ok {
+            background: rgba(255, 255, 255, 0.2) !important;
+            color: #ffffff !important;
+            border-color: rgba(255, 255, 255, 0.35) !important;
+        }
+
+        .view-tabpanel[hidden] {
+            display: none !important;
+        }
+
+        /* Tab 2: Reference Frameworks & Verbatim Standards */
+        .frameworks-intro-banner,
+        .template-intro-banner {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 14px;
+            padding: 1.2rem 1.4rem;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 4px 20px var(--shadow-glow);
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .frameworks-intro-banner h2,
+        .template-intro-banner h2 {
+            font-size: 1.22rem;
+            font-weight: 700;
+        }
+
+        .frameworks-intro-banner p,
+        .template-intro-banner p {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+        }
+
+        .framework-group-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border-strong);
+            border-radius: 14px;
+            margin-bottom: 1.35rem;
+            box-shadow: 0 4px 24px var(--shadow-glow);
+            overflow: hidden;
+        }
+
+        .framework-group-header {
+            list-style: none;
+            cursor: pointer;
+            padding: 1.05rem 1.35rem;
+            background: var(--surface-subtle);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            user-select: none;
+            border-bottom: 1px solid transparent;
+        }
+
+        .framework-group-header::-webkit-details-marker {
+            display: none;
+        }
+
+        .framework-group-card[open] > .framework-group-header {
+            border-bottom-color: var(--panel-border);
+        }
+
+        .framework-group-card[open] > .framework-group-header .group-chevron {
+            transform: rotate(90deg);
+        }
+
+        .framework-group-meta {
+            padding: 0.9rem 1.35rem;
+            border-bottom: 1px solid var(--panel-border);
+            font-size: 0.86rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .framework-meta-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.6rem 1.5rem;
+            font-size: 0.8rem;
+        }
+
+        .framework-meta-links a {
+            color: #38bdf8;
+            text-decoration: none;
+        }
+
+        .framework-meta-links a:hover {
+            text-decoration: underline;
+        }
+
+        .framework-reqs-body {
+            padding: 1.1rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .framework-req-card {
+            background: var(--panel-bg-elevated);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            padding: 1.15rem 1.3rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+
+        .framework-req-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .framework-req-title-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 0.28rem;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .framework-req-code {
+            font-family: var(--font-code);
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 0.14rem 0.5rem;
+            border-radius: 4px;
+            background: var(--accent-primary-bg);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.32);
+        }
+
+        .framework-level-pill {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 0.12rem 0.48rem;
+            border-radius: 4px;
+            background: var(--surface-subtle);
+            color: var(--text-muted);
+            border: 1px solid var(--panel-border);
+        }
+
+        .badge-compliant {
+            background: rgba(16, 185, 129, 0.14);
+            color: var(--remediation-accent);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+        }
+
+        .verbatim-box {
+            border-left: 3px solid var(--accent-primary);
+            background: var(--surface-subtle);
+            padding: 0.75rem 1rem;
+            border-radius: 0 8px 8px 0;
+            font-size: 0.88rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+        }
+
+        .verbatim-label {
+            font-size: 0.73rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #818cf8;
+        }
+
+        .verbatim-quote {
+            font-style: italic;
+            color: var(--text-main);
+            white-space: pre-line;
+            line-height: 1.55;
+        }
+
+        .verbatim-quote-fr {
+            font-size: 0.83rem;
+            color: var(--text-muted);
+            border-top: 1px dashed var(--panel-border);
+            padding-top: 0.45rem;
+            white-space: pre-line;
+        }
+
+        .req-CrossLinks {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.65rem;
+            padding-top: 0.4rem;
+            border-top: 1px solid var(--panel-border);
+        }
+
+        .req-rule-pills {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .req-action-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.45rem;
+        }
+
+        .jump-btn {
+            background: var(--surface-subtle);
+            border: 1px solid var(--panel-border-strong);
+            color: var(--text-main);
+            padding: 0.3rem 0.68rem;
+            border-radius: 6px;
+            font-family: var(--font-primary);
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.15s, border-color 0.15s;
+        }
+
+        .jump-btn:hover {
+            background: var(--accent-primary-bg);
+            border-color: var(--accent-primary);
+        }
+
+        /* Tab 3: Hardened Reference Template */
+        .template-quick-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .template-section-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border-strong);
+            border-radius: 14px;
+            padding: 1.3rem 1.45rem;
+            margin-bottom: 1.25rem;
+            box-shadow: 0 4px 24px var(--shadow-glow);
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+
+        .template-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .template-highlights {
+            list-style: disc;
+            padding-left: 1.25rem;
+            font-size: 0.86rem;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .traceability-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border-strong);
+            border-radius: 14px;
+            padding: 1.3rem 1.45rem;
+            box-shadow: 0 4px 24px var(--shadow-glow);
+            overflow-x: auto;
+        }
+
+        .traceability-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.82rem;
+            margin-top: 0.75rem;
+        }
+
+        .traceability-table caption {
+            text-align: left;
+            font-weight: 700;
+            font-size: 1.02rem;
+            margin-bottom: 0.4rem;
+            color: var(--text-main);
+        }
+
+        .traceability-table th,
+        .traceability-table td {
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--panel-border);
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .traceability-table th {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            background: var(--surface-subtle);
+        }
+
+        .traceability-table code {
+            font-family: var(--font-code);
+            font-size: 0.76rem;
+            color: var(--code-text);
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
         @media (max-width: 900px) {
@@ -1742,12 +2210,16 @@ const htmlTemplateStr = `<!DOCTYPE html>
             }
             .controls-panel,
             .header-actions,
+            .view-tabs,
             .copy-btn,
             .compact-toggle-btn {
                 display: none !important;
             }
             .finding-card,
             .finding-group,
+            .framework-group-card,
+            .framework-req-card,
+            .template-section-card,
             header,
             .system-meta,
             .triage-overview {
@@ -1786,6 +2258,24 @@ const htmlTemplateStr = `<!DOCTYPE html>
             <div class="meta-item"><strong>Total Findings:</strong> <span class="meta-pill" id="totalFindingsCount">{{.TotalCount}}</span></div>
         </section>
 
+        <!-- Top-Level WAI-ARIA View Tabs -->
+        <div class="view-tabs" role="tablist" aria-label="Report Views" onkeydown="handleTablistKeydown(event)">
+            <button type="button" class="view-tab-btn" role="tab" id="tab-report" aria-selected="true" aria-controls="panel-report" tabindex="0" onclick="switchViewTab('report')">
+                <span>Audit Report</span>
+                <span class="tab-badge">{{.TotalCount}} Findings</span>
+            </button>
+            <button type="button" class="view-tab-btn" role="tab" id="tab-frameworks" aria-selected="false" aria-controls="panel-frameworks" tabindex="-1" onclick="switchViewTab('frameworks')">
+                <span>Reference Frameworks</span>
+                <span class="tab-badge">{{.TotalRequirements}} Requirements</span>
+            </button>
+            <button type="button" class="view-tab-btn" role="tab" id="tab-template" aria-selected="false" aria-controls="panel-template" tabindex="-1" onclick="switchViewTab('template')">
+                <span>Hardened Reference Template</span>
+                <span class="tab-badge tab-badge-ok">Zero-Finding Baseline</span>
+            </button>
+        </div>
+
+        <!-- TAB PANEL 1: AUDIT REPORT -->
+        <div id="panel-report" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-report">
         <!-- Dashboard Metrics (Click any card to filter by severity) -->
         <section class="metrics-grid">
             <div class="metric-card card-crit" id="metric-crit" onclick="toggleSeverityCard('CRITICAL')" title="Click to filter Critical findings">
@@ -1914,7 +2404,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         <section class="controls-panel">
             <div class="toolbar-top-row">
                 <div class="search-bar">
-                    <input type="text" class="search-input" id="searchInput" placeholder="Search by ID, title, command, user, host, file path, compliance..." oninput="filterFindings()">
+                    <input type="text" class="search-input" id="searchInput" aria-label="Search audit findings" placeholder="Search by ID, title, command, user, host, file path, compliance..." oninput="filterFindings()">
                     <div class="search-shortcut">
                         <button type="button" class="clear-search-btn" id="clearSearchBtn" onclick="clearSearch()" title="Clear search">&times;</button>
                         <span class="kbd-hint" id="searchKbdHint">/</span>
@@ -1967,10 +2457,14 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 </div>
                 <div class="filter-buttons">
                     <button type="button" class="filter-btn active" id="btn-cat-all" onclick="filterCategory('ALL')">All Domains</button>
-                    <button type="button" class="filter-btn" id="btn-cat-policy" onclick="filterCategory('POLICY')">Policy ({{.PolicyCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-dom-gtfo" onclick="filterCategory('GTFOBINS')">GTFObins ({{.GTFOCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-dom-cmd" onclick="filterCategory('COMMANDS')">Commands ({{.CmdCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-dom-def" onclick="filterCategory('DEFAULTS')">Defaults ({{.DefCount}})</button>
+                    <div class="policy-filter-group" id="policyFilterGroup" role="group" aria-label="Policy domain filters">
+                        <button type="button" class="filter-btn filter-btn-parent" id="btn-cat-policy" onclick="filterCategory('POLICY')" title="All sudoers policy findings (GTFObins + Commands + Defaults)">Policy ({{.PolicyCount}})</button>
+                        <div class="policy-subfilters">
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-gtfo" onclick="filterCategory('GTFOBINS')">GTFObins ({{.GTFOCount}})</button>
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-cmd" onclick="filterCategory('COMMANDS')">Commands ({{.CmdCount}})</button>
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-def" onclick="filterCategory('DEFAULTS')">Defaults ({{.DefCount}})</button>
+                        </div>
+                    </div>
                     <button type="button" class="filter-btn" id="btn-cat-system" onclick="filterCategory('SYSTEM')">System ({{.SystemCount}})</button>
                 </div>
             </div>
@@ -2027,7 +2521,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                                     <span class="remediation-code-label">{{.RemediationCodeLabel}}</span>
                                     <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
                                 </div>
-                                <pre><code>{{.EffectiveRemediationCode}}</code></pre>
+                                <pre tabindex="0"><code>{{.EffectiveRemediationCode}}</code></pre>
                             </div>
                             {{end}}
                         </div>
@@ -2038,7 +2532,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                             <span class="exploit-title">Exploit / Verification Reference</span>
                             <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
                         </div>
-                        <pre><code>{{.EffectiveExploitPoC}}</code></pre>
+                        <pre tabindex="0"><code>{{.EffectiveExploitPoC}}</code></pre>
                     </div>
                     {{end}}
                 </div>
@@ -2097,7 +2591,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                                     <span class="remediation-code-label">{{.RemediationCodeLabel}}</span>
                                     <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
                                 </div>
-                                <pre><code>{{.EffectiveRemediationCode}}</code></pre>
+                                <pre tabindex="0"><code>{{.EffectiveRemediationCode}}</code></pre>
                             </div>
                             {{end}}
                         </div>
@@ -2108,7 +2602,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                             <span class="exploit-title">Exploit / Verification Reference</span>
                             <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
                         </div>
-                        <pre><code>{{.EffectiveExploitPoC}}</code></pre>
+                        <pre tabindex="0"><code>{{.EffectiveExploitPoC}}</code></pre>
                     </div>
                     {{end}}
                 </div>
@@ -2119,6 +2613,206 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 <h2>{{if eq .TotalCount 0}}No security findings detected.{{else}}No findings match the selected filters.{{end}}</h2>
             </div>
         </main>
+        </div>
+
+        <!-- TAB PANEL 2: REFERENCE FRAMEWORKS & VERBATIM REQUIREMENTS -->
+        <div id="panel-frameworks" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-frameworks" hidden>
+            <div class="frameworks-intro-banner">
+                <h2>Reference Security Frameworks &amp; Verbatim Requirements</h2>
+                <p>Complete reference catalog of all security standards enforced by <code>sudo-check</code>: <strong>ANSSI BP-028</strong> (v1.2 &amp; v2.0 French &amp; English verbatim recommendations), <strong>CIS Distribution Independent Linux Benchmark (Section 5.2)</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. Click any rule ID or compliance status badge to filter findings in the Audit Report, or jump directly to the corresponding section in the Hardened Reference Template.</p>
+            </div>
+
+            <div class="controls-panel">
+                <div class="toolbar-top-row">
+                    <div class="search-bar">
+                        <input type="text" class="search-input" id="frameworkSearchInput" aria-label="Search framework requirements" placeholder="Search requirements by code (R38, CIS-5.2.2, T1548.003), keyword (use_pty, sudoedit, NOPASSWD), or rule ID..." oninput="filterFrameworkCatalog()">
+                        <div class="search-shortcut">
+                            <button type="button" class="clear-search-btn" id="clearFrameworkSearchBtn" onclick="clearFrameworkSearch()" title="Clear search">&times;</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="toolbar-filters-row">
+                    <div class="filter-buttons">
+                        <button type="button" class="filter-btn active" id="btn-fw-all" onclick="setFrameworkFilter('ALL')">All Frameworks ({{.TotalRequirements}})</button>
+                        {{range .FrameworkGroups}}
+                        <button type="button" class="filter-btn" id="btn-fw-{{.ID}}" onclick="setFrameworkFilter('{{.ID}}')">{{.ShortName}} ({{.TotalReqs}})</button>
+                        {{end}}
+                    </div>
+                    <div class="filter-buttons">
+                        <button type="button" class="filter-btn" id="btn-fw-triggered" onclick="toggleTriggeredReqsOnly()">Triggered in This Scan Only ({{.TriggeredReqsCount}})</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="frameworksCatalogContainer">
+                {{range .FrameworkGroups}}
+                <details class="framework-group-card" data-fw-group="{{.ID}}" open>
+                    <summary class="framework-group-header">
+                        <div class="group-header-left">
+                            <span class="group-chevron">&#9654;</span>
+                            <span class="group-title">{{.FullName}}</span>
+                            <span class="framework-level-pill">{{.VersionInfo}}</span>
+                        </div>
+                        <div class="triage-row-badges">
+                            {{if gt .TotalFindings 0}}
+                            <span class="mini-sev badge-high">{{.TriggeredReqs}}/{{.TotalReqs}} Triggered ({{.TotalFindings}} findings)</span>
+                            {{else}}
+                            <span class="mini-sev badge-compliant">{{.TotalReqs}} Requirements — 0 Violations</span>
+                            {{end}}
+                        </div>
+                    </summary>
+                    <div class="framework-group-meta">
+                        <p>{{.Summary}}</p>
+                        <div class="framework-meta-links">
+                            <span><strong>Authority:</strong> {{.Publisher}}</span>
+                            <span><strong>Official Publication:</strong> <a href="{{.ReferenceURL}}" target="_blank" rel="noopener noreferrer">{{.ReferenceURL}}</a></span>
+                        </div>
+                    </div>
+                    <div class="framework-reqs-body">
+                        {{range .Requirements}}
+                        <article class="framework-req-card" id="req-{{.ID}}" data-fw-id="{{.FrameworkID}}" data-req-triggered="{{if gt .ViolationCount 0}}true{{else}}false{{end}}" data-req-search="{{.SearchText}}">
+                            <div class="framework-req-header">
+                                <div class="framework-req-title-wrap">
+                                    <div class="finding-meta-top">
+                                        <span class="framework-req-code">{{.Code}}</span>
+                                        <span class="framework-level-pill">{{.Level}}</span>
+                                    </div>
+                                    <h3 class="finding-title">{{.Title}}</h3>
+                                </div>
+                                <div class="finding-header-right">
+                                    {{if gt .ViolationCount 0}}
+                                    <span class="sev-badge {{.BadgeClass}}">{{.ViolationCount}} Violation{{if gt .ViolationCount 1}}s{{end}} ({{.HighestSeverity}})</span>
+                                    {{else}}
+                                    <span class="sev-badge badge-compliant">0 Violations — Compliant</span>
+                                    {{end}}
+                                </div>
+                            </div>
+
+                            <div class="verbatim-box">
+                                <span class="verbatim-label">Verbatim Standard Requirement</span>
+                                <blockquote class="verbatim-quote" cite="{{.CitationURL}}">{{.VerbatimQuote}}</blockquote>
+                                {{if .VerbatimQuoteFR}}
+                                <blockquote class="verbatim-quote-fr" lang="fr" cite="{{.CitationURL}}"><strong>Texte original (ANSSI BP-028) :</strong> {{.VerbatimQuoteFR}}</blockquote>
+                                {{end}}
+                            </div>
+
+                            <p class="finding-desc"><strong>Security Rationale:</strong> {{.Rationale}}</p>
+
+                            <div class="finding-remediation">
+                                <div class="remediation-code-header">
+                                    <span class="remediation-code-label">Required Sudoers Directives &amp; Controls</span>
+                                    <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                                </div>
+                                <pre tabindex="0"><code>{{.DirectivesCode}}</code></pre>
+                            </div>
+
+                            <div class="req-CrossLinks">
+                                <div class="req-rule-pills">
+                                    <strong style="font-size: 0.76rem; color: var(--text-muted); margin-right: 0.25rem;">Mapped Audit Rules:</strong>
+                                    {{range .RuleIDs}}
+                                    <button type="button" class="compliance-badge" onclick="jumpToAuditReportByRule('{{.}}')" title="Filter Audit Report by rule {{.}}">{{.}}</button>
+                                    {{end}}
+                                </div>
+                                <div class="req-action-links">
+                                    {{if gt .ViolationCount 0}}
+                                    <button type="button" class="jump-btn" data-req-code="{{.Code}}" data-req-rules="{{range $i, $r := .RuleIDs}}{{if $i}},{{end}}{{$r}}{{end}}" data-req-comps="{{range $i, $c := .ComplianceTags}}{{if $i}},{{end}}{{$c}}{{end}}" onclick="jumpToAuditReportByRequirement(this)">View Triggered Findings ({{.ViolationCount}})</button>
+                                    {{end}}
+                                    <button type="button" class="jump-btn" onclick="jumpToTemplateSection('{{.TemplateAnchor}}')">View in Hardened Template</button>
+                                </div>
+                            </div>
+                        </article>
+                        {{end}}
+                    </div>
+                </details>
+                {{end}}
+                <div class="no-findings" id="noFrameworkReqsMsg" style="display: none;">
+                    <h2>No framework requirements match the selected filter.</h2>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB PANEL 3: HARDENED REFERENCE TEMPLATE -->
+        <div id="panel-template" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-template" hidden>
+            <div class="template-intro-banner">
+                <h2>Hardened Reference Sudoers Baseline &amp; Implementation Patterns</h2>
+                <p>Production-ready reference templates implementing every recommendation from <strong>ANSSI BP-028 (R38–R42/R44)</strong>, <strong>CIS Benchmark (5.2.1–5.2.7)</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. The primary <code>/etc/sudoers</code> baseline below is continuously verified in unit tests to pass <code>sudo-check</code> with <strong>zero security findings</strong>.</p>
+            </div>
+
+            <div class="template-quick-nav">
+                {{range .TemplateSections}}
+                <button type="button" class="jump-btn" onclick="scrollToElementId('{{.ID}}')">{{.Title}}</button>
+                {{end}}
+                <button type="button" class="jump-btn" onclick="scrollToElementId('tpl-traceability-matrix')">5. Rule-to-Directive Traceability Matrix</button>
+            </div>
+
+            {{range .TemplateSections}}
+            <article class="template-section-card" id="{{.ID}}">
+                <div class="template-section-header">
+                    <div class="framework-req-title-wrap">
+                        <div class="finding-meta-top">
+                            <span class="framework-req-code">{{.Badge}}</span>
+                            <span class="location-pill">{{.FilePath}}</span>
+                        </div>
+                        <h3 class="finding-title">{{.Title}}</h3>
+                    </div>
+                    <button type="button" class="action-btn" onclick="copySectionPre(this)">Copy Template</button>
+                </div>
+                <p class="finding-desc">{{.Description}}</p>
+                {{if .Highlights}}
+                <ul class="template-highlights">
+                    {{range .Highlights}}
+                    <li>{{.}}</li>
+                    {{end}}
+                </ul>
+                {{end}}
+                <div class="finding-remediation">
+                    <div class="remediation-code-header">
+                        <span class="remediation-code-label">{{.FilePath}}</span>
+                        <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                    </div>
+                    <pre tabindex="0"><code>{{.Code}}</code></pre>
+                </div>
+                <div class="req-rule-pills">
+                    <strong style="font-size: 0.76rem; color: var(--text-muted); margin-right: 0.25rem;">Satisfies Rules:</strong>
+                    {{range .RuleIDs}}
+                    <span class="finding-id">{{.}}</span>
+                    {{end}}
+                </div>
+            </article>
+            {{end}}
+
+            <div class="traceability-card" id="tpl-traceability-matrix">
+                <table class="traceability-table">
+                    <caption>5. Complete Rule-to-Directive Traceability Matrix</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Rule ID</th>
+                            <th scope="col">Domain</th>
+                            <th scope="col">Max Severity</th>
+                            <th scope="col">Security Check</th>
+                            <th scope="col">Standards</th>
+                            <th scope="col">Hardened Baseline Control</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .TraceabilityRows}}
+                        <tr>
+                            <td><span class="finding-id" style="cursor: pointer;" onclick="scrollToElementId('{{.SectionID}}')" title="Jump to template section">{{.RuleID}}</span></td>
+                            <td>{{.Domain}}</td>
+                            <td><span class="mini-sev {{.BadgeClass}}">{{.Severity}}</span></td>
+                            <td>{{.Title}}</td>
+                            <td>
+                                <div class="compliance-tags">
+                                    {{range .Frameworks}}<span class="compliance-badge" onclick="jumpToFrameworkRequirement('{{.}}')">{{.}}</span>{{end}}
+                                </div>
+                            </td>
+                            <td><code>{{.Directive}}</code></td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -2128,8 +2822,12 @@ const htmlTemplateStr = `<!DOCTYPE html>
         let currentPrincipal = 'ALL';
         let currentRule = 'ALL';
         let currentCompliance = 'ALL';
+        let currentReqFilter = null;
         let currentGroupBy = '{{.DefaultGroupBy}}';
         let currentDensity = 'detailed';
+        let currentViewTab = 'report';
+        let currentFrameworkFilter = 'ALL';
+        let triggeredReqsOnly = false;
         let allCards = [];
 
         const severityOrder = {
@@ -2147,6 +2845,190 @@ const htmlTemplateStr = `<!DOCTYPE html>
             'LOW': 'badge-low',
             'INFO': 'badge-info'
         };
+
+        function normalizeComplianceJS(tag) {
+            return (tag || '').trim().toUpperCase().replace(/^ANSSI-BP-028-R/, 'ANSSI-BP-028 R');
+        }
+
+        function switchViewTab(tabName, focusTabBtn) {
+            const validTabs = ['report', 'frameworks', 'template'];
+            if (!validTabs.includes(tabName)) tabName = 'report';
+            currentViewTab = tabName;
+
+            validTabs.forEach(t => {
+                const btn = document.getElementById('tab-' + t);
+                const panel = document.getElementById('panel-' + t);
+                const isSelected = (t === tabName);
+                if (btn) {
+                    btn.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+                    btn.setAttribute('tabindex', isSelected ? '0' : '-1');
+                    if (isSelected && focusTabBtn) {
+                        btn.focus();
+                    }
+                }
+                if (panel) {
+                    if (isSelected) {
+                        panel.removeAttribute('hidden');
+                    } else {
+                        panel.setAttribute('hidden', '');
+                    }
+                }
+            });
+        }
+
+        function handleTablistKeydown(event) {
+            const tabs = ['report', 'frameworks', 'template'];
+            const idx = tabs.indexOf(currentViewTab);
+            if (idx === -1) return;
+
+            let nextIdx = -1;
+            if (event.key === 'ArrowRight') {
+                nextIdx = (idx + 1) % tabs.length;
+            } else if (event.key === 'ArrowLeft') {
+                nextIdx = (idx - 1 + tabs.length) % tabs.length;
+            } else if (event.key === 'Home') {
+                nextIdx = 0;
+            } else if (event.key === 'End') {
+                nextIdx = tabs.length - 1;
+            }
+
+            if (nextIdx !== -1) {
+                event.preventDefault();
+                switchViewTab(tabs[nextIdx], true);
+            }
+        }
+
+        function setFrameworkFilter(fwId) {
+            currentFrameworkFilter = fwId || 'ALL';
+            const allBtn = document.getElementById('btn-fw-all');
+            if (allBtn) allBtn.classList.toggle('active', currentFrameworkFilter === 'ALL');
+            document.querySelectorAll('[id^="btn-fw-"]').forEach(btn => {
+                if (btn.id === 'btn-fw-all' || btn.id === 'btn-fw-triggered') return;
+                btn.classList.toggle('active', btn.id === 'btn-fw-' + currentFrameworkFilter);
+            });
+            filterFrameworkCatalog();
+        }
+
+        function toggleTriggeredReqsOnly() {
+            triggeredReqsOnly = !triggeredReqsOnly;
+            const btn = document.getElementById('btn-fw-triggered');
+            if (btn) btn.classList.toggle('active', triggeredReqsOnly);
+            filterFrameworkCatalog();
+        }
+
+        function clearFrameworkSearch() {
+            const input = document.getElementById('frameworkSearchInput');
+            if (input) {
+                input.value = '';
+                filterFrameworkCatalog();
+            }
+        }
+
+        function filterFrameworkCatalog() {
+            const input = document.getElementById('frameworkSearchInput');
+            const query = input ? input.value.trim().toLowerCase() : '';
+            const clearBtn = document.getElementById('clearFrameworkSearchBtn');
+            if (clearBtn) clearBtn.style.display = query.length > 0 ? 'inline-block' : 'none';
+
+            let totalVisibleReqs = 0;
+            document.querySelectorAll('.framework-group-card').forEach(groupEl => {
+                const groupFwId = groupEl.getAttribute('data-fw-group');
+                const groupMatchesFw = (currentFrameworkFilter === 'ALL' || groupFwId === currentFrameworkFilter);
+                let visibleReqs = 0;
+
+                groupEl.querySelectorAll('.framework-req-card').forEach(reqEl => {
+                    const isTriggered = reqEl.getAttribute('data-req-triggered') === 'true';
+                    const searchBlob = reqEl.getAttribute('data-req-search') || reqEl.innerText.toLowerCase();
+                    const matchesQuery = (query === '' || searchBlob.includes(query));
+                    const matchesTriggered = (!triggeredReqsOnly || isTriggered);
+
+                    if (groupMatchesFw && matchesQuery && matchesTriggered) {
+                        reqEl.style.display = 'flex';
+                        visibleReqs++;
+                        totalVisibleReqs++;
+                    } else {
+                        reqEl.style.display = 'none';
+                    }
+                });
+
+                groupEl.style.display = (groupMatchesFw && visibleReqs > 0) ? 'block' : 'none';
+            });
+
+            const noFwMsg = document.getElementById('noFrameworkReqsMsg');
+            if (noFwMsg) {
+                noFwMsg.style.display = totalVisibleReqs === 0 ? 'block' : 'none';
+            }
+        }
+
+        function jumpToAuditReportByRule(ruleId) {
+            switchViewTab('report', false);
+            resetAllFilters();
+            currentRule = ruleId;
+            document.querySelectorAll('[data-facet-rule]').forEach(el => {
+                el.classList.toggle('active-facet', el.getAttribute('data-facet-rule') === currentRule);
+            });
+            filterFindings();
+            const container = document.getElementById('findingsContainer');
+            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function jumpToAuditReportByCompliance(compTag) {
+            switchViewTab('report', false);
+            resetAllFilters();
+            currentCompliance = normalizeComplianceJS(compTag);
+            document.querySelectorAll('[data-facet-comp]').forEach(el => {
+                el.classList.toggle('active-facet', normalizeComplianceJS(el.getAttribute('data-facet-comp')) === currentCompliance);
+            });
+            filterFindings();
+            const container = document.getElementById('findingsContainer');
+            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function jumpToAuditReportByRequirement(btn) {
+            if (!btn) return;
+            const code = btn.getAttribute('data-req-code') || '';
+            const rulesCSV = btn.getAttribute('data-req-rules') || '';
+            const compsCSV = btn.getAttribute('data-req-comps') || '';
+            switchViewTab('report', false);
+            resetAllFilters();
+            currentReqFilter = {
+                code: code,
+                rules: rulesCSV ? rulesCSV.split(',').map(s => s.trim()).filter(Boolean) : [],
+                comps: compsCSV ? compsCSV.split(',').map(s => normalizeComplianceJS(s)).filter(Boolean) : []
+            };
+            filterFindings();
+            const container = document.getElementById('findingsContainer');
+            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function jumpToFrameworkRequirement(fwCode) {
+            switchViewTab('frameworks', false);
+            setFrameworkFilter('ALL');
+            if (triggeredReqsOnly) toggleTriggeredReqsOnly();
+            const input = document.getElementById('frameworkSearchInput');
+            if (input) {
+                input.value = fwCode || '';
+                filterFrameworkCatalog();
+            }
+        }
+
+        function jumpToTemplateSection(sectionId) {
+            switchViewTab('template', false);
+            scrollToElementId(sectionId);
+        }
+
+        function scrollToElementId(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function copySectionPre(btn) {
+            const section = btn.closest('.template-section-card');
+            const code = section ? section.querySelector('pre code') : null;
+            if (code) copyTextWithFeedback(btn, code.textContent);
+        }
 
         function toggleTheme() {
             const html = document.documentElement;
@@ -2180,7 +3062,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
 
         function setupKeyboardShortcuts() {
             document.addEventListener('keydown', function(e) {
-                const searchInput = document.getElementById('searchInput');
+                const activeSearchId = currentViewTab === 'frameworks' ? 'frameworkSearchInput' : 'searchInput';
+                const searchInput = document.getElementById(activeSearchId);
                 if (!searchInput) return;
                 if (e.key === '/' && document.activeElement !== searchInput && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
                     e.preventDefault();
@@ -2188,7 +3071,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
                     searchInput.select();
                 } else if (e.key === 'Escape' && document.activeElement === searchInput) {
                     if (searchInput.value !== '') {
-                        clearSearch();
+                        if (currentViewTab === 'frameworks') clearFrameworkSearch();
+                        else clearSearch();
                     } else {
                         searchInput.blur();
                     }
@@ -2288,9 +3172,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         function toggleComplianceFilter(comp) {
-            currentCompliance = currentCompliance === comp ? 'ALL' : comp;
+            const norm = normalizeComplianceJS(comp);
+            currentCompliance = currentCompliance === norm ? 'ALL' : norm;
             document.querySelectorAll('[data-facet-comp]').forEach(el => {
-                el.classList.toggle('active-facet', el.getAttribute('data-facet-comp') === currentCompliance);
+                el.classList.toggle('active-facet', normalizeComplianceJS(el.getAttribute('data-facet-comp')) === currentCompliance);
             });
             filterFindings();
         }
@@ -2310,6 +3195,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             currentPrincipal = 'ALL';
             currentRule = 'ALL';
             currentCompliance = 'ALL';
+            currentReqFilter = null;
             const input = document.getElementById('searchInput');
             if (input) input.value = '';
             const fileSel = document.getElementById('fileFilterSelect');
@@ -2361,6 +3247,12 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 const btn = document.getElementById(buttons[c]);
                 if (btn) btn.classList.toggle('active', c === currentCategory);
             }
+            const isPolicySub = (currentCategory === 'GTFOBINS' || currentCategory === 'COMMANDS' || currentCategory === 'DEFAULTS');
+            const isAnyPolicy = (currentCategory === 'POLICY' || isPolicySub);
+            const policyGroup = document.getElementById('policyFilterGroup');
+            const policyParentBtn = document.getElementById('btn-cat-policy');
+            if (policyGroup) policyGroup.classList.toggle('has-active-policy', isAnyPolicy);
+            if (policyParentBtn) policyParentBtn.classList.toggle('parent-context', isPolicySub);
         }
 
         function setViewDensity(mode) {
@@ -2421,6 +3313,12 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         function expandAllDisclosures(expand) {
+            if (currentViewTab === 'frameworks') {
+                document.querySelectorAll('.framework-group-card').forEach(grp => {
+                    grp.open = expand;
+                });
+                return;
+            }
             document.querySelectorAll('.finding-group').forEach(grp => {
                 grp.open = expand;
             });
@@ -2588,42 +3486,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 summary.appendChild(right);
                 details.appendChild(summary);
 
-                if (currentGroupBy === 'RULE' && g.sharedRem && g.cards.length > 1) {
-                    const remBanner = document.createElement('div');
-                    remBanner.className = 'group-shared-remediation';
-                    const remTitle = document.createElement('strong');
-                    remTitle.className = 'group-shared-remediation-title';
-                    remTitle.textContent = 'Shared Rule Remediation (' + g.cards.length + ' occurrences)';
-                    const remText = document.createElement('span');
-                    remText.textContent = g.sharedRem;
-                    remBanner.appendChild(remTitle);
-                    remBanner.appendChild(remText);
-                    if (g.sharedRemCode) {
-                        const codeBlock = document.createElement('div');
-                        codeBlock.className = 'remediation-code-block';
-                        const codeHeader = document.createElement('div');
-                        codeHeader.className = 'remediation-code-header';
-                        const codeLabel = document.createElement('span');
-                        codeLabel.className = 'remediation-code-label';
-                        codeLabel.textContent = g.sharedRemLabel || 'Example Fix';
-                        const copyBtn = document.createElement('button');
-                        copyBtn.type = 'button';
-                        copyBtn.className = 'copy-btn';
-                        copyBtn.setAttribute('onclick', 'copyCodeBlock(this)');
-                        copyBtn.textContent = 'Copy';
-                        codeHeader.appendChild(codeLabel);
-                        codeHeader.appendChild(copyBtn);
-                        const pre = document.createElement('pre');
-                        const code = document.createElement('code');
-                        code.textContent = g.sharedRemCode;
-                        pre.appendChild(code);
-                        codeBlock.appendChild(codeHeader);
-                        codeBlock.appendChild(pre);
-                        remBanner.appendChild(codeBlock);
-                    }
-                    details.appendChild(remBanner);
-                }
-
                 const body = document.createElement('div');
                 body.className = 'finding-group-body';
                 g.cards.forEach(card => body.appendChild(card));
@@ -2662,15 +3524,17 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 const compCSV = card.getAttribute('data-compliance') || '';
                 const searchBlob = card.getAttribute('data-search') || card.innerText.toLowerCase();
 
+                const normCardComps = compCSV ? compCSV.split(',').map(s => normalizeComplianceJS(s)) : [];
                 const matchesQuery = query === '' || searchBlob.includes(query);
                 const matchesSeverity = (currentSeverity === 'ALL' || sev === currentSeverity);
                 const matchesCategory = (currentCategory === 'ALL' || cat === currentCategory || dom === currentCategory);
                 const matchesFile = (currentFile === 'ALL' || file === currentFile);
                 const matchesPrincipal = (currentPrincipal === 'ALL' || principal === currentPrincipal);
                 const matchesRule = (currentRule === 'ALL' || ruleId === currentRule);
-                const matchesComp = (currentCompliance === 'ALL' || compCSV.split(',').includes(currentCompliance));
+                const matchesComp = (currentCompliance === 'ALL' || normCardComps.includes(normalizeComplianceJS(currentCompliance)));
+                const matchesReq = (!currentReqFilter || currentReqFilter.rules.includes(ruleId) || currentReqFilter.comps.some(c => normCardComps.includes(c)));
 
-                if (matchesQuery && matchesSeverity && matchesCategory && matchesFile && matchesPrincipal && matchesRule && matchesComp) {
+                if (matchesQuery && matchesSeverity && matchesCategory && matchesFile && matchesPrincipal && matchesRule && matchesComp && matchesReq) {
                     card.style.display = 'flex';
                     visibleCount++;
                 } else {
@@ -2738,11 +3602,21 @@ const htmlTemplateStr = `<!DOCTYPE html>
             }
 
             if (currentSeverity !== 'ALL') addChip('Severity: ' + currentSeverity, () => filterSeverity('ALL'));
-            if (currentCategory !== 'ALL') addChip('Domain: ' + currentCategory, () => filterCategory('ALL'));
+            if (currentCategory !== 'ALL') {
+                const catLabels = {
+                    'POLICY': 'Policy (All)',
+                    'GTFOBINS': 'Policy \u203A GTFObins',
+                    'COMMANDS': 'Policy \u203A Commands',
+                    'DEFAULTS': 'Policy \u203A Defaults',
+                    'SYSTEM': 'System'
+                };
+                addChip('Domain: ' + (catLabels[currentCategory] || currentCategory), () => filterCategory('ALL'));
+            }
             if (currentFile !== 'ALL') addChip('Source: ' + currentFile, () => setFileFilter('ALL'));
             if (currentPrincipal !== 'ALL') addChip('Principal: ' + currentPrincipal, () => setPrincipalFilter('ALL'));
             if (currentRule !== 'ALL') addChip('Rule: ' + currentRule, () => toggleRuleFilter(currentRule));
             if (currentCompliance !== 'ALL') addChip('Compliance: ' + currentCompliance, () => toggleComplianceFilter(currentCompliance));
+            if (currentReqFilter) addChip('Requirement: ' + currentReqFilter.code, () => { currentReqFilter = null; filterFindings(); });
             if (query !== '') addChip('Search: "' + query + '"', () => clearSearch());
 
             if (resetBtn) {

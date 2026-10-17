@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sudo-check/internal/buildinfo"
 	"sudo-check/pkg/audit"
+	"sudo-check/pkg/gtfobins"
+	"sudo-check/pkg/parser"
 	"testing"
 )
 
@@ -442,6 +444,180 @@ func TestWriteHTMLReport(t *testing.T) {
 	}
 	if !strings.Contains(out, "content-visibility: auto") || !strings.Contains(out, "contain-intrinsic-size") {
 		t.Errorf("Missing content-visibility deferred rendering rules in HTML report")
+	}
+
+	// Verify WAI-ARIA 3-tab structure (Audit Report, Reference Frameworks, Hardened Reference Template)
+	for _, token := range []string{
+		`role="tablist"`,
+		`id="tab-report"`,
+		`id="tab-frameworks"`,
+		`id="tab-template"`,
+		`id="panel-report"`,
+		`id="panel-frameworks"`,
+		`id="panel-template"`,
+		`switchViewTab('report')`,
+		`switchViewTab('frameworks')`,
+		`switchViewTab('template')`,
+	} {
+		if !strings.Contains(out, token) {
+			t.Errorf("Missing expected 3-tab navigation token %q in HTML report", token)
+		}
+	}
+
+	// Verify Tab 2: Verbatim requirements from all standards used in the project
+	for _, fwToken := range []string{
+		"ANSSI-BP-028 R38",
+		"ANSSI-BP-028 R39",
+		"ANSSI-BP-028 R40",
+		"ANSSI-BP-028 R41",
+		"ANSSI-BP-028 R42",
+		"Defaults noexec,requiretty,use_pty,umask=0077",
+		"Defaults ignore_dot,env_reset,passwd_timeout=1",
+		"CIS-5.2.1",
+		"CIS-5.2.2",
+		"CIS-5.2.3",
+		"CIS-5.2.4",
+		"CIS-5.2.6",
+		"CIS-5.2.7",
+		"DISA-STIG",
+		"MITRE-T1548.003",
+	} {
+		if !strings.Contains(out, fwToken) {
+			t.Errorf("Missing expected framework requirement token %q in HTML report", fwToken)
+		}
+	}
+
+	// Verify Tab 3: Hardened Reference Template sections and traceability matrix
+	for _, tplToken := range []string{
+		"Hardened /etc/sudoers Reference Baseline Policy",
+		"tpl-sudoers-baseline",
+		"tpl-dropin-example",
+		"tpl-wrapper-script",
+		"tpl-filesystem-perms",
+		"tpl-traceability-matrix",
+		"/usr/local/sbin/sudo-wrappers/reload-nginx-config.sh",
+		"jumpToAuditReportByRequirement",
+		"jumpToFrameworkRequirement",
+		"noFrameworkReqsMsg",
+	} {
+		if !strings.Contains(out, tplToken) {
+			t.Errorf("Missing expected hardened template token %q in HTML report", tplToken)
+		}
+	}
+}
+
+func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {
+	// Verify that findings with generic compliance tags (e.g., SUDO-DEF-001 with "ANSSI-BP-028", "CIS-5.2")
+	// or no compliance tags (e.g., SUDO-DEF-016) still trigger their specific mapped requirements
+	// (such as ANSSI-BP-028 R39 and CIS-5.2.1) without double-counting when both RuleID and ComplianceTag match.
+	res := &audit.AuditResult{
+		PolicyFindings: []audit.Finding{
+			{
+				ID:         "SUDO-DEF-001",
+				Title:      "Missing secure_path Configuration",
+				Severity:   audit.SeverityHigh,
+				Compliance: []string{"ANSSI-BP-028", "CIS-5.2"},
+			},
+			{
+				ID:       "SUDO-DEF-016",
+				Title:    "Deprecated or Risky Chroot Directive in Defaults (runchroot)",
+				Severity: audit.SeverityHigh,
+				// No Compliance slice on SUDO-DEF-016 in rules_defaults.go
+			},
+			{
+				ID:         "SUDO-GTFO-001",
+				Title:      "Dangerous Sudo Binary allowed: find (shell)",
+				Severity:   audit.SeverityHigh,
+				Compliance: []string{"ANSSI-BP-028", "MITRE-T1548.003"},
+			},
+		},
+	}
+
+	data := buildHTMLReportData(res)
+
+	reqByID := make(map[string]FrameworkRequirement)
+	groupByID := make(map[string]FrameworkCatalogGroup)
+	for _, g := range data.FrameworkGroups {
+		groupByID[g.ID] = g
+		for _, r := range g.Requirements {
+			reqByID[r.ID] = r
+		}
+	}
+
+	// ANSSI R39 maps SUDO-DEF-001 and SUDO-DEF-016 -> must report exactly 2 violations (not 0)
+	r39, ok := reqByID["anssi-r39"]
+	if !ok {
+		t.Fatalf("Missing anssi-r39 requirement in catalog")
+	}
+	if r39.ViolationCount != 2 {
+		t.Errorf("Expected anssi-r39 ViolationCount == 2 (SUDO-DEF-001 + SUDO-DEF-016), got %d", r39.ViolationCount)
+	}
+
+	// ANSSI R41 maps SUDO-GTFO-001 -> must report 1 violation even though SUDO-GTFO-001 has tag "ANSSI-BP-028" (without R41)
+	r41, ok := reqByID["anssi-r41"]
+	if !ok {
+		t.Fatalf("Missing anssi-r41 requirement in catalog")
+	}
+	if r41.ViolationCount != 1 {
+		t.Errorf("Expected anssi-r41 ViolationCount == 1 (SUDO-GTFO-001), got %d", r41.ViolationCount)
+	}
+
+	// MITRE T1548.003 matches SUDO-GTFO-001 by both RuleID and ComplianceTag -> must be deduplicated to 1 violation
+	mitreReq, ok := reqByID["mitre-t1548-003"]
+	if !ok {
+		t.Fatalf("Missing mitre-t1548-003 requirement in catalog")
+	}
+	if mitreReq.ViolationCount != 1 {
+		t.Errorf("Expected mitre-t1548-003 ViolationCount == 1 (deduplicated), got %d", mitreReq.ViolationCount)
+	}
+
+	// ANSSI group total findings must be deduplicated across requirements (3 distinct findings total)
+	anssiGrp := groupByID["ANSSI-BP-028"]
+	if anssiGrp.TotalFindings != 3 {
+		t.Errorf("Expected ANSSI-BP-028 group TotalFindings == 3 distinct findings, got %d", anssiGrp.TotalFindings)
+	}
+}
+
+func TestHardenedSudoersReferencePolicy_ZeroFindings(t *testing.T) {
+	rawPolicy := HardenedSudoersReferencePolicy()
+	if strings.TrimSpace(rawPolicy) == "" {
+		t.Fatalf("HardenedSudoersReferencePolicy() returned empty policy")
+	}
+
+	policy, err := parser.ParseString(rawPolicy)
+	if err != nil {
+		t.Fatalf("Failed to parse HardenedSudoersReferencePolicy(): %v", err)
+	}
+
+	gtfoClient, err := gtfobins.NewClient()
+	if err != nil {
+		t.Fatalf("Failed to initialize embedded GTFObins client: %v", err)
+	}
+
+	findings := audit.RunAudit(policy, gtfoClient)
+	if len(findings) != 0 {
+		for _, f := range findings {
+			t.Logf("Unexpected finding on hardened reference policy: [%s] %s (%s) - %s", f.Severity, f.ID, f.Title, f.Description)
+		}
+		t.Fatalf("Expected 0 findings on HardenedSudoersReferencePolicy(), got %d", len(findings))
+	}
+
+	// Also verify that every sudoers policy block in buildHardenedTemplateSections() parses cleanly and produces 0 findings when combined with the baseline
+	sections := buildHardenedTemplateSections()
+	if len(sections) < 2 {
+		t.Fatalf("Expected at least 2 hardened template sections, got %d", len(sections))
+	}
+	combinedSudoers := rawPolicy + "\n" + sections[1].Code + "\n"
+	combinedPolicy, err := parser.ParseString(combinedSudoers)
+	if err != nil {
+		t.Fatalf("Failed to parse combined baseline + drop-in template policy: %v", err)
+	}
+	combinedFindings := audit.RunAudit(combinedPolicy, gtfoClient)
+	if len(combinedFindings) != 0 {
+		for _, f := range combinedFindings {
+			t.Logf("Unexpected finding on combined baseline + drop-in policy: [%s] %s (%s) - %s", f.Severity, f.ID, f.Title, f.Description)
+		}
+		t.Fatalf("Expected 0 findings on combined baseline + drop-in policy, got %d", len(combinedFindings))
 	}
 }
 
