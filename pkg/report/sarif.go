@@ -134,7 +134,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 	results := []SarifResult{}
 	ruleMap := make(map[string]bool)
 
-	addFindings := func(findings []audit.Finding, defaultURI string) {
+	addFindings := func(findings []audit.Finding, defaultURI string, category string) {
 		for _, f := range findings {
 			// Add rule metadata if not already present
 			if !ruleMap[f.ID] {
@@ -173,10 +173,16 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 				}
 			}
 
+			cleanRem, effectiveRemCode, _, _ := resolveFindingRemediationAndExploit(f, category)
+			msgText := f.Description + "\nRemediation: " + cleanRem
+			if effectiveRemCode != "" {
+				msgText += "\nExample Fix:\n" + effectiveRemCode
+			}
+
 			results = append(results, SarifResult{
 				RuleID: f.ID,
 				Message: SarifMultiformatText{
-					Text: f.Description + "\nRemediation: " + f.Remediation,
+					Text: msgText,
 				},
 				Level: mapLevel(f.Severity),
 				Locations: []SarifLocation{
@@ -188,8 +194,8 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 		}
 	}
 
-	addFindings(result.SystemFindings, "system-configuration")
-	addFindings(result.PolicyFindings, "file:///etc/sudoers")
+	addFindings(result.SystemFindings, "system-configuration", "SYSTEM")
+	addFindings(result.PolicyFindings, "file:///etc/sudoers", "POLICY")
 
 	run := SarifRun{
 		Tool: SarifTool{

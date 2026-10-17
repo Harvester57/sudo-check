@@ -253,40 +253,42 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 		pdf.Cell(0, 5, "REMEDIATION:")
 		pdf.Ln(5)
 
+		category := "POLICY"
+		if strings.HasPrefix(f.ID, "SUDO-SYS-") || strings.HasPrefix(f.ID, "CVE-") {
+			category = "SYSTEM"
+		}
+		cleanRem, effectiveRemCode, _, effectivePoC := resolveFindingRemediationAndExploit(f, category)
+
 		pdf.SetFont("Helvetica", "", 9)
 		pdf.SetTextColor(30, 41, 59)
+		pdf.SetX(20)
+		pdf.MultiCell(170, 5, cleanText(cleanRem), "", "L", false)
+		pdf.Ln(2)
 
-		exploitText := f.Remediation
-		exploitCmd := f.ExploitPoC
-		if exploitCmd == "" && strings.Contains(f.Remediation, "Example exploit command:\n") {
-			parts := strings.Split(f.Remediation, "Example exploit command:\n")
-			exploitText = parts[0]
-			if len(parts) > 1 {
-				exploitCmd = parts[1]
-			}
+		if effectiveRemCode != "" {
+			pdf.SetFillColor(241, 245, 249) // Light grey
+			pdf.SetDrawColor(16, 185, 129)  // Emerald border
+			pdf.SetFont("Courier", "", 8.5)
+			pdf.SetTextColor(15, 118, 110) // Deep teal/emerald text
+			pdf.SetX(20)
+			pdf.MultiCell(170, 5, cleanText(effectiveRemCode), "1", "L", true)
+			pdf.SetDrawColor(226, 232, 240)
+			pdf.Ln(2)
 		}
 
-		if exploitCmd != "" {
+		if effectivePoC != "" {
+			pdf.SetFont("Helvetica", "B", 8.5)
+			pdf.SetTextColor(217, 119, 6) // Amber
 			pdf.SetX(20)
-			pdf.MultiCell(170, 5, cleanText(exploitText), "", "L", false)
-			pdf.Ln(2)
+			pdf.Cell(0, 5, "EXPLOIT / VERIFICATION REFERENCE:")
+			pdf.Ln(5)
 
-			pdf.SetFillColor(241, 245, 249) // Light grey
+			pdf.SetFillColor(248, 250, 252)
+			pdf.SetDrawColor(226, 232, 240)
 			pdf.SetFont("Courier", "", 8.5)
-			pdf.SetTextColor(16, 185, 129)
+			pdf.SetTextColor(71, 85, 105)
 			pdf.SetX(20)
-			pdf.MultiCell(170, 5, cleanText(exploitCmd), "1", "L", true)
-			pdf.Ln(2)
-		} else if strings.Contains(f.Remediation, "Defaults ") || strings.HasPrefix(f.Remediation, "Run ") {
-			pdf.SetFillColor(241, 245, 249)
-			pdf.SetFont("Courier", "", 8.5)
-			pdf.SetTextColor(16, 185, 129)
-			pdf.SetX(20)
-			pdf.MultiCell(170, 5, cleanText(f.Remediation), "1", "L", true)
-			pdf.Ln(2)
-		} else {
-			pdf.SetX(20)
-			pdf.MultiCell(170, 5, cleanText(f.Remediation), "", "L", false)
+			pdf.MultiCell(170, 5, cleanText(effectivePoC), "1", "L", true)
 			pdf.Ln(2)
 		}
 

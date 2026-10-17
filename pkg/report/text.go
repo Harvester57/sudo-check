@@ -59,7 +59,7 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 		blue = colorBlue
 	}
 
-	writeFinding := func(f audit.Finding) {
+	writeFinding := func(f audit.Finding, category string) {
 		sevColor := ""
 		if useColor {
 			sevColor = GetSeverityColor(f.Severity)
@@ -90,9 +90,15 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 			sb.WriteString(fmt.Sprintf("  Compliance:  %s\n", strings.Join(f.Compliance, ", ")))
 		}
 		sb.WriteString(fmt.Sprintf("  Description: %s\n", f.Description))
-		sb.WriteString(fmt.Sprintf("  Remediation: %s\n", f.Remediation))
-		if f.ExploitPoC != "" {
-			indented := strings.ReplaceAll(strings.TrimSpace(f.ExploitPoC), "\n", "\n    ")
+
+		cleanRem, effectiveRemCode, _, effectivePoC := resolveFindingRemediationAndExploit(f, category)
+		sb.WriteString(fmt.Sprintf("  Remediation: %s\n", cleanRem))
+		if effectiveRemCode != "" {
+			indentedFix := strings.ReplaceAll(strings.TrimSpace(effectiveRemCode), "\n", "\n    ")
+			sb.WriteString(fmt.Sprintf("  Example Fix:\n    %s\n", indentedFix))
+		}
+		if effectivePoC != "" {
+			indented := strings.ReplaceAll(strings.TrimSpace(effectivePoC), "\n", "\n    ")
 			sb.WriteString(fmt.Sprintf("  Reference:\n    %s\n", indented))
 		}
 		sb.WriteString("\n")
@@ -115,7 +121,7 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 
 		sb.WriteString(fmt.Sprintf("%s--- System Vulnerability Findings (%d) ---%s\n", bold, len(sorted), reset))
 		for _, f := range sorted {
-			writeFinding(f)
+			writeFinding(f, "SYSTEM")
 		}
 	}
 
@@ -127,7 +133,7 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 
 		sb.WriteString(fmt.Sprintf("%s--- Sudoers Policy Findings (%d) ---%s\n", bold, len(sorted), reset))
 		for _, f := range sorted {
-			writeFinding(f)
+			writeFinding(f, "POLICY")
 		}
 	} else {
 		sb.WriteString("No sudoers policy misconfigurations found.\n")

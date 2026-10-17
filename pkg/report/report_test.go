@@ -57,19 +57,20 @@ func createDummyResult() *audit.AuditResult {
 				Compliance:  []string{"CIS-5.2.4"},
 			},
 			{
-				ID:          "SUDO-GTFO-001",
-				Title:       "Dangerous Sudo Binary allowed: find (shell)",
-				Description: "The command 'find' is allowed — and can be used → to bypass sudo restrictions.",
-				Severity:    audit.SeverityCritical,
-				User:        "alice",
-				Host:        "prod-db",
-				Runas:       "root:root",
-				Command:     "/usr/bin/find",
-				Context:     "/etc/sudoers.d/alice",
-				Line:        42,
-				Remediation: "Review if 'find' requires elevated privileges.",
-				ExploitPoC:  "sudo find . -exec /bin/sh \\; -quit",
-				Compliance:  []string{"ANSSI-BP-028-R40"},
+				ID:              "SUDO-GTFO-001",
+				Title:           "Dangerous Sudo Binary allowed: find (shell)",
+				Description:     "The command 'find' is allowed — and can be used → to bypass sudo restrictions.",
+				Severity:        audit.SeverityCritical,
+				User:            "alice",
+				Host:            "prod-db",
+				Runas:           "root:root",
+				Command:         "/usr/bin/find",
+				Context:         "/etc/sudoers.d/alice",
+				Line:            42,
+				Remediation:     "Review if 'find' requires elevated privileges.",
+				RemediationCode: "# Apply NOEXEC tag in /etc/sudoers.d/alice:\nalice prod-db = (root:root) NOEXEC: /usr/bin/find /var/log -maxdepth 1",
+				ExploitPoC:      "sudo find . -exec /bin/sh \\; -quit",
+				Compliance:      []string{"ANSSI-BP-028-R40"},
 			},
 			{
 				ID:          "SUDO-GTFO-003",
@@ -126,6 +127,9 @@ func TestWriteJSONReport(t *testing.T) {
 	if parsed.PolicyFindings[0].Runas != "root:root" || parsed.PolicyFindings[0].Line != 42 {
 		t.Errorf("Expected structured Runas and Line in JSON output, got Runas=%q Line=%d", parsed.PolicyFindings[0].Runas, parsed.PolicyFindings[0].Line)
 	}
+	if !strings.Contains(parsed.PolicyFindings[0].RemediationCode, "NOEXEC: /usr/bin/find") {
+		t.Errorf("Expected RemediationCode in JSON output, got %q", parsed.PolicyFindings[0].RemediationCode)
+	}
 
 	// Empty findings should serialize as [] not null
 	var emptyBuf bytes.Buffer
@@ -177,6 +181,12 @@ func TestWriteTextReport(t *testing.T) {
 	}
 	if !strings.Contains(out, "Compliance:  ANSSI-BP-028-R40") {
 		t.Errorf("Missing Compliance field in text report")
+	}
+	if !strings.Contains(out, "Example Fix:\n    # Apply NOEXEC tag in /etc/sudoers.d/alice:\n    alice prod-db = (root:root) NOEXEC: /usr/bin/find /var/log -maxdepth 1") {
+		t.Errorf("Missing Example Fix block in text report, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Example Fix:\n    chmod 0440 /etc/sudoers") {
+		t.Errorf("Missing extracted inline Example Fix block for system finding in text report")
 	}
 	if !strings.Contains(out, "Reference:\n    sudo find . -exec /bin/sh \\; -quit") {
 		t.Errorf("Missing ExploitPoC reference block in text report")
@@ -321,13 +331,16 @@ func TestWriteSarifReport(t *testing.T) {
 		t.Fatalf("Expected 7 results, got %d", len(run.Results))
 	}
 
-	// Verify region.startLine is populated for findings with Line > 0
+	// Verify region.startLine is populated for findings with Line > 0 and Example Fix is included
 	foundLine42 := false
 	for _, res := range run.Results {
 		if res.RuleID == "SUDO-GTFO-001" && len(res.Locations) > 0 {
 			reg := res.Locations[0].PhysicalLocation.Region
 			if reg != nil && reg.StartLine == 42 {
 				foundLine42 = true
+			}
+			if !strings.Contains(res.Message.Text, "Example Fix:\n# Apply NOEXEC tag") {
+				t.Errorf("Expected Example Fix in SARIF result message, got %q", res.Message.Text)
 			}
 		}
 	}
@@ -380,11 +393,117 @@ func TestWriteHTMLReport(t *testing.T) {
 		t.Errorf("Missing ExploitPoC in HTML report")
 	}
 
+	// Verify Remediation Code Block in HTML report
+	if !strings.Contains(out, `class="remediation-code-block"`) {
+		t.Errorf("Missing remediation-code-block in HTML report")
+	}
+	if !strings.Contains(out, "Example Sudoers Configuration (visudo)") || !strings.Contains(out, "Remediation Command") {
+		t.Errorf("Missing remediation code block labels in HTML report")
+	}
+	if !strings.Contains(out, "NOEXEC: /usr/bin/find /var/log -maxdepth 1") {
+		t.Errorf("Missing RemediationCode snippet in HTML report")
+	}
+	if !strings.Contains(out, "chmod 0440 /etc/sudoers") {
+		t.Errorf("Missing extracted inline command snippet in HTML report")
+	}
+
 	// Verify sorting: CRITICAL policy finding (SUDO-GTFO-001) must appear before MEDIUM (SUDO-DEF-009)
 	idxCrit := strings.Index(out, "SUDO-GTFO-001")
 	idxMed := strings.Index(out, "SUDO-DEF-009")
 	if idxCrit == -1 || idxMed == -1 || idxCrit > idxMed {
 		t.Errorf("Expected CRITICAL finding SUDO-GTFO-001 (%d) to appear before MEDIUM finding SUDO-DEF-009 (%d)", idxCrit, idxMed)
+	}
+
+	// Verify XSS escaping
+	if strings.Contains(out, "<script>alert(1)</script>") {
+		t.Errorf("HTML report failed to escape <script> tag in finding title")
+	}
+	if !strings.Contains(out, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Errorf("Expected escaped XSS payload in HTML report")
+	}
+
+	// Verify separated Exploit / Verification Reference block and clean remediation
+	if !strings.Contains(out, "Exploit / Verification Reference") {
+		t.Errorf("Missing dedicated Exploit / Verification Reference section in HTML report")
+	}
+	if strings.Contains(out, "Example exploit command:") {
+		t.Errorf("Expected 'Example exploit command:' suffix to be stripped from remediation text and moved to exploit box")
+	}
+	if !strings.Contains(out, "sudo vim -c &#39;:!/bin/sh&#39;") && !strings.Contains(out, "sudo vim -c ':!/bin/sh'") {
+		t.Errorf("Expected extracted legacy GTFO exploit command in HTML report")
+	}
+
+	// Verify pseudo-sudoers rule preview and triage breakdown sections
+	if !strings.Contains(out, "alice prod-db = (root:root) /usr/bin/find") {
+		t.Errorf("Missing pseudo-sudoers rule preview in HTML report")
+	}
+	if !strings.Contains(out, "Audited Files / Sources") || !strings.Contains(out, "Principals / Users") {
+		t.Errorf("Missing triage breakdown panels in HTML report")
+	}
+	if !strings.Contains(out, "content-visibility: auto") || !strings.Contains(out, "contain-intrinsic-size") {
+		t.Errorf("Missing content-visibility deferred rendering rules in HTML report")
+	}
+}
+
+func TestWriteHTMLReport_ScalabilityAndGrouping(t *testing.T) {
+	// 1. Multi-file audit (>= 12 findings across multiple files -> auto-selects FILE grouping)
+	multiFileResult := &audit.AuditResult{
+		Hostname:    "fleet-audit",
+		SudoVersion: "1.9.15p5",
+	}
+	for i := 0; i < 14; i++ {
+		file := "/etc/sudoers.d/app-a"
+		if i%2 == 1 {
+			file = "/etc/sudoers.d/app-b"
+		}
+		multiFileResult.PolicyFindings = append(multiFileResult.PolicyFindings, audit.Finding{
+			ID:          "SUDO-CMD-006",
+			Title:       "Missing Command Argument Restrictions",
+			Description: "Command has no argument restrictions.",
+			Severity:    audit.SeverityMedium,
+			User:        "deploy",
+			Host:        "ALL",
+			Runas:       "root",
+			Command:     "/usr/bin/systemctl",
+			Context:     file,
+			Line:        i + 1,
+			Remediation: "Restrict arguments.",
+		})
+	}
+	var bufMulti bytes.Buffer
+	if err := WriteHTMLReport(multiFileResult, &bufMulti); err != nil {
+		t.Fatalf("WriteHTMLReport failed on multi-file result: %v", err)
+	}
+	outMulti := bufMulti.String()
+	if !strings.Contains(outMulti, "let currentGroupBy = 'FILE';") {
+		t.Errorf("Expected multi-file large report to default to FILE grouping")
+	}
+	if !strings.Contains(outMulti, "/etc/sudoers.d/app-a") || !strings.Contains(outMulti, "/etc/sudoers.d/app-b") {
+		t.Errorf("Expected both source files in multi-file HTML report")
+	}
+
+	// 2. Single-file high-finding audit (>= 20 findings in 1 file -> auto-selects RULE grouping)
+	singleFileLarge := &audit.AuditResult{
+		Hostname: "monolith-host",
+	}
+	for i := 0; i < 22; i++ {
+		singleFileLarge.PolicyFindings = append(singleFileLarge.PolicyFindings, audit.Finding{
+			ID:          "SUDO-CMD-005",
+			Title:       "Passwordless Specific Command Execution Allowed (NOPASSWD)",
+			Description: "NOPASSWD rule.",
+			Severity:    audit.SeverityLow,
+			User:        "ops",
+			Context:     "/etc/sudoers",
+			Line:        i + 10,
+			Remediation: "Require password.",
+		})
+	}
+	var bufSingle bytes.Buffer
+	if err := WriteHTMLReport(singleFileLarge, &bufSingle); err != nil {
+		t.Fatalf("WriteHTMLReport failed on single-file large result: %v", err)
+	}
+	if !strings.Contains(bufSingle.String(), "let currentGroupBy = 'RULE';") {
+		t.Errorf("Expected single-file large report (>=20 findings) to default to RULE grouping")
 	}
 }
 
