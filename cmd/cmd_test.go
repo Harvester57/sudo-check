@@ -127,6 +127,40 @@ func TestScanCmd_Directories(t *testing.T) {
 		t.Fatalf("scan on drop-in directory failed: %v", err)
 	}
 
+	// 1b. Directory with root sudoers + #includedir sudoers.d + standalone extra.sudoers
+	resetFlags()
+	mixedDir := t.TempDir()
+	subDropinDir := filepath.Join(mixedDir, "sudoers.d")
+	if err := os.MkdirAll(subDropinDir, 0750); err != nil {
+		t.Fatalf("failed to create sudoers.d: %v", err)
+	}
+	rootSudoersContent := "Defaults env_reset, use_pty, secure_path=\"/usr/bin\"\n#includedir sudoers.d\n"
+	if err := os.WriteFile(filepath.Join(mixedDir, "sudoers"), []byte(rootSudoersContent), 0600); err != nil {
+		t.Fatalf("failed to write root sudoers: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDropinDir, "10-alice"), []byte("alice ALL=(root) /usr/bin/find\n"), 0600); err != nil {
+		t.Fatalf("failed to write 10-alice: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mixedDir, "standalone.sudoers"), []byte("bob ALL=(root) /usr/bin/vim\n"), 0600); err != nil {
+		t.Fatalf("failed to write standalone.sudoers: %v", err)
+	}
+	mixedOut := filepath.Join(mixedDir, "out")
+	rootCmd.SetArgs([]string{"scan", mixedDir, "-o", mixedOut, "-f", "json,html", "--no-color"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("scan on mixed directory failed: %v", err)
+	}
+	mixedJSONBytes, err := os.ReadFile(filepath.Join(mixedOut, "report.json"))
+	if err != nil {
+		t.Fatalf("failed to read mixed report.json: %v", err)
+	}
+	mixedJSON := string(mixedJSONBytes)
+	if !strings.Contains(mixedJSON, "10-alice") || !strings.Contains(mixedJSON, "standalone.sudoers") {
+		t.Errorf("expected both included 10-alice and standalone.sudoers in report.json, got:\n%s", mixedJSON)
+	}
+	if strings.Count(mixedJSON, `"Dangerous Sudo Binary allowed: find (shell)"`) != 1 {
+		t.Errorf("expected 10-alice not to be audited twice when included via root sudoers")
+	}
+
 	// 2. Directory with JSON files (including one malformed JSON skipped with warning)
 	resetFlags()
 	jsonDir := t.TempDir()
@@ -245,5 +279,43 @@ func TestUpdateDbCmd(t *testing.T) {
 	rootCmd.SetArgs([]string{"update-db", "-p", outFile})
 	if err := rootCmd.Execute(); err == nil {
 		t.Fatal("expected error for empty executables database")
+	}
+}
+
+func TestScanRealWorldCorpusAllReportFormats(t *testing.T) {
+	corpusCategories := []string{"distros", "upstream_regress", "enterprise_cloud"}
+	for _, cat := range corpusCategories {
+		cat := cat
+		t.Run(cat, func(t *testing.T) {
+			resetFlags()
+			corpusDir := filepath.Join("..", "testdata", "corpus", cat)
+			outDir := filepath.Join(t.TempDir(), "reports-"+cat)
+			rootCmd.SetArgs([]string{
+				"scan",
+				corpusDir,
+				"-o", outDir,
+				"-f", "text,json,sarif,html,pdf",
+				"--no-color",
+			})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("scan failed on corpus category %s: %v", cat, err)
+			}
+
+			expectedFiles := []string{
+				"report.txt",
+				"report.json",
+				"report.sarif",
+				"report.html",
+				"report.pdf",
+			}
+			for _, f := range expectedFiles {
+				info, err := os.Stat(filepath.Join(outDir, f))
+				if err != nil {
+					t.Errorf("expected report %s for %s: %v", f, cat, err)
+				} else if info.Size() == 0 {
+					t.Errorf("expected non-empty report %s for %s", f, cat)
+				}
+			}
+		})
 	}
 }

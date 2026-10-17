@@ -75,13 +75,21 @@ var scanCmd = &cobra.Command{
 				return fmt.Errorf("failed to walk directory: %w", err)
 			}
 
+			if hasRootSudoers {
+				orderedSudoers := []string{rootSudoers}
+				for _, sf := range sudoersFiles {
+					if filepath.Clean(sf) != filepath.Clean(rootSudoers) {
+						orderedSudoers = append(orderedSudoers, sf)
+					}
+				}
+				sudoersFiles = orderedSudoers
+			}
+
 			if len(jsonFiles) > 0 && hasRootSudoers {
 				files = append(files, jsonFiles...)
-				files = append(files, rootSudoers)
+				files = append(files, sudoersFiles...)
 			} else if len(jsonFiles) > 0 {
 				files = jsonFiles
-			} else if hasRootSudoers {
-				files = []string{rootSudoers}
 			} else {
 				files = sudoersFiles
 			}
@@ -93,9 +101,21 @@ var scanCmd = &cobra.Command{
 			return fmt.Errorf("no sudoers or JSON policy files found at target path: %s", targetPath)
 		}
 
+		normalizeKey := func(p string) string {
+			if abs, err := filepath.Abs(filepath.FromSlash(p)); err == nil {
+				return filepath.ToSlash(filepath.Clean(abs))
+			}
+			return filepath.ToSlash(filepath.Clean(p))
+		}
+
 		// 3. Parse and audit policies
+		visitedFiles := make(map[string]bool)
 		var combinedFindings []audit.Finding
 		for _, file := range files {
+			if visitedFiles[normalizeKey(file)] {
+				continue
+			}
+
 			data, err := os.ReadFile(file)
 			if err != nil {
 				return fmt.Errorf("failed to read file %s: %w", file, err)
@@ -128,6 +148,11 @@ var scanCmd = &cobra.Command{
 					return fmt.Errorf("failed to parse sudoers file %s: %w", file, err)
 				}
 				policy = p
+			}
+
+			visitedFiles[normalizeKey(file)] = true
+			for _, inc := range policy.IncludedFiles {
+				visitedFiles[normalizeKey(inc)] = true
 			}
 
 			// Run audit and set context as the file name
