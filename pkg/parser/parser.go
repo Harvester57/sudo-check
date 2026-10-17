@@ -479,11 +479,25 @@ func (ctx *parseContext) handleInclude(kind string, rawTarget string, baseDir st
 
 func resolveIncludePath(target string, baseDir string) string {
 	if filepath.IsAbs(target) || strings.HasPrefix(target, "/") {
+		cleanBase := filepath.ToSlash(filepath.Clean(baseDir))
+		if baseDir != "" && cleanBase != "/etc" {
+			// Prefer offline local candidates when scanning a sudoers policy outside /etc
+			trimmed := strings.TrimPrefix(target, "/etc/")
+			if trimmed != target {
+				candidate := filepath.Join(baseDir, trimmed)
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate
+				}
+			}
+			baseCandidate := filepath.Join(baseDir, filepath.Base(target))
+			if _, err := os.Stat(baseCandidate); err == nil {
+				return baseCandidate
+			}
+		}
 		if _, err := os.Stat(target); err == nil {
 			return target
 		}
 		if baseDir != "" {
-			// Fallback for offline scanning of /etc/sudoers policies stored in a local directory
 			trimmed := strings.TrimPrefix(target, "/etc/")
 			if trimmed != target {
 				candidate := filepath.Join(baseDir, trimmed)
