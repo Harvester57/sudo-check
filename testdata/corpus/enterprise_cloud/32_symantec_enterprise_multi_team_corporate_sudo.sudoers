@@ -1,0 +1,63 @@
+### Command Aliases
+Cmnd_Alias NETWORKING = /sbin/route, /sbin/ifconfig, /sbin/dhclient, /usr/bin/net, /sbin/iptables, /sbin/iwconfig, /sbin/mii-tool, /sbin/ethtool, /sbin/ifup, /sbin/ifdown
+Cmnd_Alias SOFTWARE = /bin/rpm, /usr/bin/up2date, /usr/bin/yum
+Cmnd_Alias SERVICES = /sbin/service, /sbin/chkconfig, /sbin/initctl
+Cmnd_Alias LOCATE = /usr/bin/updatedb, /usr/bin/locate, /bin/find
+Cmnd_Alias STORAGE = /sbin/fdisk, /sbin/sfdisk, /sbin/parted, /sbin/partprobe, /bin/mount, /bin/umount
+Cmnd_Alias DELEGATING = /bin/chown, /bin/chmod, /bin/chgrp
+Cmnd_Alias PROCESSES = /bin/nice, /bin/kill, /usr/bin/kill, /usr/bin/killall, /usr/sbin/lsof
+Cmnd_Alias DRIVERS = /sbin/modprobe, /sbin/rmmod, /sbin/insmod
+Cmnd_Alias PASSENGER = /usr/bin/passenger-status, /opt/ruby19/bin/passenger-memory-stats
+Cmnd_Alias TROUBLESHOOTING = /usr/bin/tail, /usr/bin/rvim, /bin/ls, /bin/touch, /bin/rm, /bin/cat, /bin/chmod, /bin/cp, /bin/mv, /bin/chown, /bin/grep, /bin/mkdir, /bin/netstat, /bin/rmdir, /usr/java/default/bin/jstack, /usr/sbin/tcpdump, /usr/local/sbin/cleanup.sh, /usr/bin/gdb, /usr/bin/reboot
+Cmnd_Alias DEV = /bin/su - tomcat, /bin/su - rails, /bin/su - jenkins, /usr/bin/gem, /usr/bin/pip-python, /usr/sbin/update-alternatives
+Cmnd_Alias ORA = /bin/su - oracle
+Cmnd_Alias OPERATOR = DEV, NETWORKING, SOFTWARE, SERVICES, LOCATE, STORAGE, DELEGATING, PROCESSES, DRIVERS, PASSENGER, TROUBLESHOOTING
+Cmnd_Alias DEVELOPER = SOFTWARE, SERVICES, LOCATE, PROCESSES, PASSENGER, TROUBLESHOOTING, DEV
+Cmnd_Alias QATESTER  = SOFTWARE, SERVICES, LOCATE, PROCESSES, PASSENGER, TROUBLESHOOTING, DEV
+Cmnd_Alias NETBACKUP = /usr/openv/
+Cmnd_Alias DATABASE = /bin/su - mysql, /bin/su - postgres
+Cmnd_Alias DBA = DATABASE, TROUBLESHOOTING, PROCESSES, DELEGATING, LOCATE, SERVICES, SOFTWARE, ORA
+
+### Host Aliases
+Host_Alias JUMPBOXES=llinjpash*
+Host_Alias BIGDATA=d[0-9]*ash*.mgmt.symcpe.net 
+Host_Alias PUPPETMASTER=pformnash*
+Host_Alias INFRA=PTIMEX*, PDNS*, PDHCP*, PTACAC*, PFORMN*, PWINDC*, PWINDC*, PWUTIL*, PSOURC*, PCACTI*, PVCENT*, PVMVCO*, PCBBLR*, PYMIRR* 
+
+### User Aliases
+User_Alias  ADMINS = bseitz, sdarone, skolesnikowicz, ianc, bryan_seitz, scott_darone, stefan_kolesnikowicz, ian_courtney
+
+# Defaults specification
+Defaults    env_reset
+Defaults    env_keep = "COLORS DISPLAY HOSTNAME HISTSIZE INPUTRC KDEDIR \
+                        LS_COLORS MAIL PS1 PS2 QTDIR USERNAME \
+                        LANG LC_ADDRESS LC_CTYPE LC_COLLATE LC_IDENTIFICATION \
+                        LC_MEASUREMENT LC_MESSAGES LC_MONETARY LC_NAME LC_NUMERIC \
+                        LC_PAPER LC_TELEPHONE LC_TIME LC_ALL LANGUAGE LINGUAS \
+                        _XKB_CHARSET XAUTHORITY SSH_CLIENT SSH_TTY SSH_CONNECTION SSH_AUTH_SOCK"
+
+### Aliases
+ADMINS                  ALL=(ALL)       ALL
+
+### Security scans
+%symcpe.secscan.lnx.adm	ALL=(ALL)	ALL
+
+#group_inf may run anything on machines in INFRA
+#%group_inf		INFRA = ALL
+
+### NOC CPE
+%symcpe.noc.lnx.adm 	ALL=(ALL) OPERATOR
+
+### Admin Groups
+root                    ALL=(ALL)   	ALL
+%wheel                  ALL=(ALL)	ALL
+%symcpe.lnx.adm       	ALL=(ALL)	ALL
+
+### Hadoop priv
+%bdata.lnx.adm	    	ALL=(ALL)	ALL
+
+### Hadoop Users nopriv
+#%bdata.lnx.usr
+
+
+### EOF

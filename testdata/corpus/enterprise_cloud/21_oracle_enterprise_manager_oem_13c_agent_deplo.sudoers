@@ -1,0 +1,17 @@
+# /etc/sudoers.d/S_OEM-Deploy_perm
+#
+# THIS FILE IS CONTROLLED BY PUPPET
+# DO NOT EDIT
+#
+S_OEM-Deploy ALL=(oracle) NOPASSWD:ALL
+S_OEM-Deploy ALL=(root) NOPASSWD:/opt/oracle/emagent/agent_13.2.0.0.0/root.sh
+#Run Alias specification describing the root user and locked account user names.
+Runas_Alias     ROOT_USER = root
+Runas_Alias     LOCKED_ACCOUNT_USER = oracle
+
+#Command Alias specification. Change the agent install base directory as per your requirement.
+Cmnd_Alias      ROOT_COMMANDS = /usr/bin/id, /opt/oracle/emagent/ADATMP_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[AP]M/agentdeployroot.sh
+Cmnd_Alias      LOCKED_ACCOUNT_COMMANDS = /usr/bin/id, /bin/ps, /bin/chmod, /bin/cp, /bin/mkdir, /bin/rm, /bin/tar, /opt/oracle/emagent/agent_inst/bin/emctl, /opt/oracle/emagent/ADATMP_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[AP]M/agentDeploy.sh, /opt/oracle/emagent/ADATMP_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[AP]M/prereq_stage/core/12.1.0.2.0/oui/bin/runInstaller, /opt/oracle/emagent/ADATMP_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[AP]M/unzip, /opt/oracle/em/product/12.1.0.4/agent_1/ADATMP_[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[AP]M/unzipTmp/unzip
+#User Specification. Change the ssh login username as per your requirement . eg myuser
+S_OEM-Deploy ALL=(ROOT_USER) ROOT_COMMANDS
+S_OEM-Deploy ALL=(LOCKED_ACCOUNT_USER) LOCKED_ACCOUNT_COMMANDS

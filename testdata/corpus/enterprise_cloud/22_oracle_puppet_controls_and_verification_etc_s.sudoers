@@ -1,0 +1,44 @@
+# /etc/sudoers.d/oracle_puppet_perm
+#
+# THIS FILE IS CONTROLLED BY PUPPET
+# DO NOT EDIT
+#
+#########################################
+# Oracle Puppet Controls And Verification 
+#########################################
+oracle ALL=(root)NOPASSWD:/usr/local/bin/puppet_admin.sh agent run, \
+      /usr/local/bin/puppet_admin.sh agent enable, \
+      /usr/local/bin/puppet_admin.sh agent disable, \
+      /usr/local/bin/puppet_admin.sh service start, \
+      /usr/local/bin/puppet_admin.sh service stop, \
+      /usr/local/bin/puppet_admin.sh yaml remove, \
+      /usr/local/bin/puppet_oraverify.sh platform sum, \
+      /usr/local/bin/puppet_oraverify.sh platform detail, \
+      /usr/local/bin/puppet_oraverify.sh bootstrap sum, \
+      /usr/local/bin/puppet_oraverify.sh bootstrap detail, \
+      /usr/local/bin/puppet_oraverify.sh prereqs sum, \
+      /usr/local/bin/puppet_oraverify.sh prereqs detail, \
+      /usr/local/bin/puppet_oraverify.sh postreqs sum, \
+      /usr/local/bin/puppet_oraverify.sh postreqs detail, \
+      /usr/local/bin/puppet_oraverify.sh oem sum, \
+      /usr/local/bin/puppet_oraverify.sh oem detail, \
+      /usr/local/bin/puppet_oraverify.sh orahome sum, \
+      /usr/local/bin/puppet_oraverify.sh orahome detail, \
+      /usr/local/bin/puppet_oraverify.sh oradb sum, \
+      /usr/local/bin/puppet_oraverify.sh oradb detail, \
+      /usr/local/bin/puppet_oraverify.sh orabasic sum, \
+      /usr/local/bin/puppet_oraverify.sh orabasic detail, \
+      /usr/local/bin/puppet_oraverify.sh oraall sum, \
+      /usr/local/bin/puppet_oraverify.sh oraall detail, \
+      /usr/local/bin/puppet_oraverify.sh extfact sum, \
+      /usr/local/bin/puppet_oraverify.sh extfact detail, \
+      /usr/local/bin/puppet_oraverify.sh intfact sum, \
+      /usr/local/bin/puppet_oraverify.sh intfact detail, \
+      /usr/local/bin/puppet_oraverify.sh rman sum, \
+      /usr/local/bin/puppet_oraverify.sh rman detail, \
+      /usr/local/bin/puppet_oraverify.sh rmanrepo sum, \
+      /usr/local/bin/puppet_oraverify.sh rmanrepo detail, \
+      /usr/local/bin/puppet_oraverify.sh patch sum, \
+      /usr/local/bin/puppet_oraverify.sh patch detail, \
+      /usr/local/bin/puppet_oraverify.sh puppet, \
+      /usr/local/bin/puppet_oraverify.sh help

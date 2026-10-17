@@ -1,0 +1,1 @@
+nagios ALL=NOPASSWD: /usr/sbin/pvesm list *, /usr/bin/pvectl list *, /usr/bin/lxc-ls, /usr/sbin/qm list *

@@ -1,0 +1,10 @@
+# Legacy / Talos Proxmox Terraform drop-in (/etc/sudoers.d/terraform)
+terraform ALL=(root) NOPASSWD: /sbin/pvesm
+terraform ALL=(root) NOPASSWD: /sbin/qm
+terraform ALL=(root) NOPASSWD: /usr/bin/tee /var/lib/vz/*
+
+# Updated bpg/terraform-provider-proxmox drop-in (/etc/sudoers.d/terraform)
+terraform ALL=(root) NOPASSWD: /usr/sbin/pvesm apiinfo
+terraform ALL=(root) NOPASSWD: /usr/bin/tee /var/lib/vz/snippets/[a-zA-Z0-9_][a-zA-Z0-9_.-]*
+terraform ALL=(root) NOPASSWD: /usr/bin/sed -i * /etc/pve/lxc/*.conf
+terraform ALL=(root) NOPASSWD: /usr/bin/tee -a /etc/pve/lxc/*.conf

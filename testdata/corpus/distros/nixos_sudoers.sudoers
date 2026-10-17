@@ -1,0 +1,5 @@
+# Don't edit this file. Set the NixOS options 'security.sudo.configFile'
+# or 'security.sudo.extraRules' instead.
+
+root     ALL=(ALL:ALL)    SETENV: ALL
+%wheel  ALL=(ALL:ALL)    SETENV: ALL

@@ -1,0 +1,46 @@
+#Defaults logfile=/var/log/sudo.log,loglinelen=0 
+Defaults !syslog
+
+root ALL=(ALL) ALL
+#includedir /etc/sudoers.d
+
+# for setting the time zone
+apache    ALL = (ALL) NOPASSWD: /usr/local/bin/settimezone
+# for adding partitions in the hosting section
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/addpart
+# for shutting down and rebooting the system from the WebUI
+apache    ALL = (ALL) NOPASSWD: /sbin/shutdown
+# for starting siad from the WebUI
+apache    ALL = (ALL) NOPASSWD: /etc/init.d/hsd, /etc/init.d/siad
+# for configuring and starting freedns when the user clicks on submit button in freedns section
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/ConfigFreeDns
+# for stopping and removing ddclient when the user chooses static IP type
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/StopFreeDns
+# for adding and removing WalletUnlocker to the default run level
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/DisableAutoUnlock, /var/www/localhost/htdocs/*/bin/EnableAutoUnlock
+# for unlocking/locking wallet when auto unlock is enabled
+apache    ALL = (ALL) NOPASSWD: /etc/init.d/XSCWalletUnlocker, /etc/init.d/SCWalletUnlocker
+# for setting the wallet password for enabling auto-unlocking in /usr/local/bin/unlocker
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/SetAutoUnlock
+# for letting the webapp have more complete access to block devices
+apache    ALL = (ALL) NOPASSWD: /bin/lsblk
+# for letting the webapp to be able to format the block devices
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/formatter
+# for checking the valid linux user as login
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/checker
+# for creating the Sia user
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/CreateUser
+# for measuring Disk IO
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/getsiad_realtimeread
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/getsiad_realtimewrite
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/getsiad_totalread
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/getsiad_totalwrite
+# for starting and stopping the webshell
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/startwebshell
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/killwebshell
+# for adding ipsetter in case of need for an IP change
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/addipsetter
+# for writing auth hash to file
+apache    ALL = (ALL) NOPASSWD: /var/www/localhost/htdocs/*/bin/writehash
+# for getting the api pass
+apache    ALL = (ALL) NOPASSWD: /usr/local/bin/getapipass

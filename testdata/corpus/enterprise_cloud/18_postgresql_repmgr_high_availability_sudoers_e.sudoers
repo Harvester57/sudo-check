@@ -1,0 +1,1 @@
+postgres ALL=(ALL) NOPASSWD: /usr/bin/systemctl start postgresql@16-main, /usr/bin/systemctl stop postgresql@16-main, /usr/bin/systemctl restart postgresql@16-main, /usr/bin/systemctl reload postgresql@16-main, /usr/bin/systemctl status postgresql@16-main

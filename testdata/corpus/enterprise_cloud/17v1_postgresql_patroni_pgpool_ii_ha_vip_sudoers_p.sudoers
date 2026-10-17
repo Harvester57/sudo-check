@@ -1,0 +1,2 @@
+# /etc/sudoers.d/pgpool-vip
+postgres ALL=(ALL) NOPASSWD: /usr/sbin/ip, /usr/sbin/arping

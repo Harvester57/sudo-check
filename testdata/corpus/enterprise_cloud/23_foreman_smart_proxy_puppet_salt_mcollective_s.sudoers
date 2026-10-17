@@ -1,0 +1,5 @@
+Cmnd_Alias SALT = /usr/bin/salt, /usr/bin/salt-key
+foreman-proxy ALL = NOPASSWD: SALT
+foreman-proxy ALL = (root) NOPASSWD : /opt/puppetlabs/bin/puppet cert *
+foreman-proxy ALL = NOPASSWD: /usr/bin/mco puppet runonce *
+Defaults:foreman-proxy !requiretty

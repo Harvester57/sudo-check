@@ -1,0 +1,17 @@
+# ANSSI BP-028 R39 extraConfig (CuriosLabs/CuriOS)
+Defaults use_pty,umask=0077
+Defaults ignore_dot,env_reset
+
+# /etc/sudoers.d/pavois: least-privilege posture for the pavois scanner/hardener account
+pavois ALL=(ALL) ALL
+
+# cinc-auditor execs programs during a run, so the management user is exempt from
+# a global `Defaults noexec` (which pavois can otherwise apply as a hardening).
+Defaults:pavois !noexec
+
+# Allow sudo from a non-interactive context (the scan runs cinc without a login
+# shell). `use_pty` still applies, so the command runs inside a pseudo-terminal.
+Defaults:pavois !requiretty
+
+# Keep an audit trail of everything pavois runs as root.
+Defaults:pavois logfile="/var/log/sudo-pavois.log"

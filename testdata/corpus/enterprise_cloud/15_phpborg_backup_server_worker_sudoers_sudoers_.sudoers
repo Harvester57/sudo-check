@@ -1,0 +1,52 @@
+# Allow phpborg user to manage scheduler service
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-scheduler
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-scheduler --no-pager
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-scheduler --no-pager -l
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl start phpborg-scheduler
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl stop phpborg-scheduler
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl restart phpborg-scheduler
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-active phpborg-scheduler
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-enabled phpborg-scheduler
+
+# Allow phpborg user to manage worker pool instances (with @1, @2, @3, @4)
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-worker@*
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-worker@* --no-pager
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl status phpborg-worker@* --no-pager -l
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl start phpborg-worker@*
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl stop phpborg-worker@*
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl restart phpborg-worker@*
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-active phpborg-worker@*
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-enabled phpborg-worker@*
+
+# Allow phpborg user to read logs via journalctl
+phpborg ALL=(ALL) NOPASSWD: /bin/journalctl -u phpborg-scheduler --no-pager -n *
+phpborg ALL=(ALL) NOPASSWD: /bin/journalctl -u phpborg-scheduler --no-pager --since *
+phpborg ALL=(ALL) NOPASSWD: /bin/journalctl -u phpborg-worker@* --no-pager -n *
+phpborg ALL=(ALL) NOPASSWD: /bin/journalctl -u phpborg-worker@* --no-pager --since *
+
+# Allow phpborg user to list all phpborg services
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl list-units phpborg-* --no-pager
+
+# SSL/TLS Certificate Management
+phpborg ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t
+phpborg ALL=(ALL) NOPASSWD: /usr/sbin/nginx -t -c *
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl reload nginx
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-active nginx
+phpborg ALL=(ALL) NOPASSWD: /bin/systemctl is-active certbot.timer
+
+# Certbot for Let's Encrypt certificates
+phpborg ALL=(ALL) NOPASSWD: /usr/bin/certbot certonly *
+phpborg ALL=(ALL) NOPASSWD: /usr/bin/certbot renew *
+phpborg ALL=(ALL) NOPASSWD: /usr/bin/certbot certificates *
+
+# Install certbot plugins if missing
+phpborg ALL=(ALL) NOPASSWD: /usr/bin/apt-get install -y python3-certbot-dns-cloudflare
+
+# Allow phpborg to run all borg commands as phpborg-borg with env vars
+phpborg ALL=(phpborg-borg) NOPASSWD: SETENV: /usr/bin/borg *
+
+# Mount directories for borg archive browsing
+phpborg ALL=(phpborg-borg) NOPASSWD: /bin/mkdir -p /var/lib/phpborg/mounts/*
+phpborg ALL=(phpborg-borg) NOPASSWD: /bin/rmdir /var/lib/phpborg/mounts/*
+phpborg ALL=(ALL) NOPASSWD: /bin/rm -rf /var/lib/phpborg/mounts/*
+phpborg ALL=(ALL) NOPASSWD: /bin/umount -l /var/lib/phpborg/mounts/*

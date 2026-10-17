@@ -1,0 +1,11 @@
+# Specific and generic permissions in /etc/sudoers.d/SAPHanaSR
+sleadm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_sle_glob_srHook -v * -t crm_config -s SAPHanaSR
+sleadm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_sle_*
+
+# Restricted permissions in /etc/sudoers.d/SAPHanaSR
+nsaadm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_nsa_glob_srHook -s SOK -t crm_config -s SAPHanaSR
+nsaadm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_nsa_glob_srHook -s SFAIL -t crm_config -s SAPHanaSR
+nsaadm ALL=(ALL) NOPASSWD: /usr/sbin/crm_attribute -n hana_nsa_gsh -v 1.0 -l reboot
+
+# SAPHanaSR-alert-fencing
+hacluster ALL=(ALL) NOPASSWD: /usr/bin/SAPHanaSR-hookHelper --sid=ANY --case=echoBe

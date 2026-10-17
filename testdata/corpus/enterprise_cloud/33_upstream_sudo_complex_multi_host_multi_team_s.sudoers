@@ -1,0 +1,91 @@
+##
+# Override built-in defaults
+##
+Defaults		syslog=auth,runcwd=~
+Defaults>root		!set_logname
+Defaults:FULLTIMERS	!lecture,runchroot=*
+Defaults:millert	!authenticate
+Defaults@SERVERS	log_year, logfile=/var/log/sudo.log
+Defaults!PAGERS		noexec
+
+##
+# User alias specification
+##
+User_Alias	FULLTIMERS = millert, mikef, dowdy
+User_Alias	PARTTIMERS = bostley, jwfox, crawl
+User_Alias	WEBADMIN = will, wendy, wim
+
+##
+# Runas alias specification
+##
+Runas_Alias	OP = root, operator
+Runas_Alias	DB = oracle, sybase
+
+##
+# Host alias specification
+##
+Host_Alias	SPARC = bigtime, eclipse, moet, anchor:\
+		SGI = grolsch, dandelion, black:\
+		ALPHA = widget, thalamus, foobar:\
+		HPPA = boa, nag, python
+Host_Alias	CUNETS = 128.138.0.0/255.255.0.0
+Host_Alias	CSNETS = 128.138.243.0, 128.138.204.0/24, 128.138.242.0
+Host_Alias	SERVERS = primary, mail, www, ns
+Host_Alias	CDROM = orion, perseus, hercules
+
+##
+# Cmnd alias specification
+##
+Cmnd_Alias	DUMPS = /usr/sbin/dump, /usr/sbin/rdump, /usr/sbin/restore, \
+			/usr/sbin/rrestore, /usr/bin/mt, \
+			sha224:0GomF8mNN3wlDt1HD9XldjJ3SNgpFdbjO1+NsQ== \
+			/home/operator/bin/start_backups
+Cmnd_Alias	KILL = /usr/bin/kill, /usr/bin/top
+Cmnd_Alias	PRINTING = /usr/sbin/lpc, /usr/bin/lprm
+Cmnd_Alias	SHUTDOWN = /usr/sbin/shutdown
+Cmnd_Alias	HALT = /usr/sbin/halt
+Cmnd_Alias	REBOOT = /usr/sbin/reboot
+Cmnd_Alias	SHELLS = /sbin/sh, /usr/bin/sh, /usr/bin/csh, /usr/bin/ksh, \
+			 /usr/local/bin/tcsh, /usr/bin/rsh, \
+			 /usr/local/bin/zsh
+Cmnd_Alias	SU = /usr/bin/su
+Cmnd_Alias	VIPW = /usr/sbin/vipw, /usr/bin/passwd, /usr/bin/chsh, \
+		       /usr/bin/chfn
+Cmnd_Alias	PAGERS = /usr/bin/more, /usr/bin/pg, /usr/bin/less
+
+##
+# User specification
+##
+
+# root and users in group wheel can run anything on any machine as any user
+root		ALL = (ALL:ALL) ALL
+%wheel		ALL = (ALL:ALL) ALL
+
+# full time sysadmins can run anything on any machine without a password
+FULLTIMERS	ALL = (ALL:ALL) NOPASSWD: ALL
+
+# part time sysadmins may run anything as root but need a password
+PARTTIMERS	ALL = ALL
+
+# jack may run anything on machines in CSNETS
+jack		CSNETS = ALL
+
+# lisa may run any command on any host in CUNETS (a class B network)
+lisa		CUNETS = ALL
+
+# operator may run maintenance commands and anything in /usr/oper/bin/
+operator	ALL = DUMPS, KILL, SHUTDOWN, HALT, REBOOT, PRINTING,\
+		sudoedit /etc/printcap, /usr/oper/bin/
+
+# joe may su only to operator
+joe		ALL = /usr/bin/su operator
+
+# pete may change passwords for anyone but root on the hp snakes
+pete		HPPA = /usr/bin/passwd ^[a-zA-Z0-9_]+$, !/usr/bin/passwd root
+
+# bob may run anything on the sparc and sgi machines as any user
+# listed in the Runas_Alias "OP" (ie: root and operator)
+bob		SPARC = (OP) ALL : SGI = (OP) ALL
+
+# jim may run anything on machines in the biglab netgroup
+jim		+biglab = ALL

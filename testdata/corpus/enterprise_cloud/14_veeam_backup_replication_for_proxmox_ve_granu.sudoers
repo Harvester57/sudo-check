@@ -1,0 +1,26 @@
+# Commands Veeam Backup & Replication runs on this node, from Veeam KB4701.
+#
+# PASSWD is deliberate. Veeam sends the account password with every sudo call
+# and reports a credential timeout if sudo does not ask for one, so NOPASSWD
+# breaks the integration rather than easing it.
+veeam-service ALL=(root) PASSWD: /usr/sbin/dmidecode -s system-uuid
+veeam-service ALL=(root) PASSWD: /usr/bin/kvm -S *,!/usr/bin/kvm -S *-netdev*,!/usr/bin/kvm -S *-fsdev*, !/usr/bin/kvm -S *netdev=*,!/usr/bin/kvm -S *fsdev=*, !/usr/bin/kvm -S *-net*,!/usr/bin/kvm -S *net=*
+veeam-service ALL=(root) PASSWD: /usr/bin/qemu-img info *
+veeam-service ALL=(root) PASSWD: /usr/bin/qemu-img create *
+veeam-service ALL=(root) PASSWD: /usr/sbin/qm create *,!/usr/sbin/qm create * --hookscript*
+veeam-service ALL=(root) PASSWD: /usr/sbin/qm ^showcmd [0-9]+ --pretty$
+veeam-service ALL=(root) PASSWD: /usr/sbin/qm ^unlock [0-9]+$
+veeam-service ALL=(root) PASSWD: /usr/bin/socat ^TCP-LISTEN:[0-9]+,bind=127\.0\.0\.1 UNIX-CONNECT:/[a-zA-Z0-9_./-]+$
+veeam-service ALL=(root) PASSWD: /usr/bin/mkdir -p /var/lib/vz/snippets/
+veeam-service ALL=(root) PASSWD: /usr/bin/pvenode cert info --output-format json
+veeam-service ALL=(root) PASSWD: /usr/bin/pvesh ^get storage/([a-zA-Z0-9_-]+) --output json$
+veeam-service ALL=(root) PASSWD: /usr/bin/pvesh ^set /nodes/([a-zA-Z0-9_-]+)/qemu/([0-9]+)/config --lock ([a-zA-Z]+)$
+veeam-service ALL=(root) PASSWD: /usr/bin/pkill -9 -e -f -x socat *
+veeam-service ALL=(root) PASSWD: /usr/sbin/lvchange -ay *
+veeam-service ALL=(root) PASSWD: /usr/sbin/lvchange -an *
+veeam-service ALL=(root) PASSWD: /usr/bin/rbd device map *
+veeam-service ALL=(root) PASSWD: /usr/bin/mv ^-n /tmp/([a-zA-Z0-9_-]+\.config) /var/lib/vz/snippets/([a-zA-Z0-9_-]+\.config)$
+veeam-service ALL=(root) PASSWD: /usr/bin/rm ^(/[a-zA-Z0-9_/-]+/VeeamTmp[a-zA-Z0-9_.-]+\s*)+$
+veeam-service ALL=(root) PASSWD: /usr/bin/rm ^-f /[a-zA-Z0-9_/-]+/VeeamTmp[a-zA-Z0-9_.-]+$
+veeam-service ALL=(root) PASSWD: /usr/bin/rm ^-f /var/lib/vz/snippets/[a-zA-Z0-9_-]+\.config$
+veeam-service ALL=(root) PASSWD: /usr/bin/rm ^-f /var/lib/vz/template/iso/[a-zA-Z0-9_.-]+\.img$

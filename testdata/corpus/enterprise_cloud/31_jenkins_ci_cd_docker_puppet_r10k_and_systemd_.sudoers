@@ -1,0 +1,11 @@
+# Save me to /etc/sudoers.d/user-jenkins-exec-docker
+Cmnd_Alias  DOCKER  = /usr/bin/docker
+jenkins     ALL=(ALL) NOPASSWD: DOCKER
+
+# Systemd reload from bruj0/jenkins_pipeline
+Cmnd_Alias RESTART_PROJECT1 = /bin/systemctl reload project1.service
+jenkins-service ALL=(ALL:ALL) NOPASSWD: RESTART_PROJECT1
+
+# Puppet / r10k deployment from ivevangenechten/sas_profiles
+jenkins ALL=(ALL) NOPASSWD: /usr/local/bin/r10k, /usr/bin/svn
+jenkins ALL=(ALL) NOPASSWD: /usr/bin/puppet
