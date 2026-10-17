@@ -288,6 +288,30 @@ Defaults env_reset
 		t.Errorf("Included users = %v, want %v", users, wantUsers)
 	}
 
+	if len(policy.IncludedFiles) < 6 {
+		t.Errorf("Expected at least 6 IncludedFiles (main + 5 included files), got %d: %v", len(policy.IncludedFiles), policy.IncludedFiles)
+	}
+
+	// Verify audit findings preserve exact source file Context across #include and #includedir
+	gtfoClient, err := gtfobins.NewClient()
+	if err != nil {
+		t.Fatalf("Failed to initialize GTFObins client: %v", err)
+	}
+	incFindings := audit.RunAudit(policy, gtfoClient)
+	foundFirstDropin := false
+	foundSecondDropin := false
+	for _, f := range incFindings {
+		if f.User == "user1" && strings.HasSuffix(f.Context, "/sudoers.d/01_first") {
+			foundFirstDropin = true
+		}
+		if f.User == "user2" && strings.HasSuffix(f.Context, "/sudoers.d/02_second") {
+			foundSecondDropin = true
+		}
+	}
+	if !foundFirstDropin || !foundSecondDropin {
+		t.Errorf("Expected per-file Finding.Context attribution for included drop-ins 01_first and 02_second, got findings: %+v", incFindings)
+	}
+
 	// Test ParseReader with raw sudoers content, empty filename, and non-empty filename + baseDir
 	rawReaderPolicy, err := ParseReader(strings.NewReader("alice ALL = /bin/ls\\ -la \"arg with \\\"quotes\\\"\"\n"), "", tmpDir)
 	if err != nil || len(rawReaderPolicy.UserSpecs) != 1 {
@@ -419,6 +443,10 @@ func runCvtsudoersOracle(t *testing.T, sudoersInput string) *audit.SudoersPolicy
 
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("cvtsudoers failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	if len(bytes.TrimSpace(stdout.Bytes())) == 0 {
+		return &audit.SudoersPolicy{}
 	}
 
 	var policy audit.SudoersPolicy

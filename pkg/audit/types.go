@@ -57,19 +57,20 @@ func ParseSeverity(s string) (Severity, bool) {
 
 // Finding represents a single security issue identified in the audit.
 type Finding struct {
-	ID          string   `json:"id"`                    // Unique identifier for the finding type (e.g. SUDO-001)
-	Title       string   `json:"title"`                 // Short summary
-	Description string   `json:"description"`           // Detailed explanation
-	Severity    Severity `json:"severity"`              // CRITICAL, HIGH, etc.
-	User        string   `json:"user,omitempty"`        // Affected user/group (if command spec check)
-	Host        string   `json:"host,omitempty"`        // Affected host (if command spec check)
-	Runas       string   `json:"runas,omitempty"`       // Target runas user/group (if command spec check)
-	Command     string   `json:"command,omitempty"`     // Command path involved (if command spec check)
-	Context     string   `json:"context,omitempty"`     // Location/file information if available
-	Line        int      `json:"line,omitempty"`        // Line number in source policy if available
-	Remediation string   `json:"remediation"`           // How to fix the finding
-	ExploitPoC  string   `json:"exploit_poc,omitempty"` // Reference command illustrating the capability
-	Compliance  []string `json:"compliance,omitempty"`  // Compliance references (e.g. ANSSI-BP-028, CIS)
+	ID              string   `json:"id"`                         // Unique identifier for the finding type (e.g. SUDO-001)
+	Title           string   `json:"title"`                      // Short summary
+	Description     string   `json:"description"`                // Detailed explanation
+	Severity        Severity `json:"severity"`                   // CRITICAL, HIGH, etc.
+	User            string   `json:"user,omitempty"`             // Affected user/group (if command spec check)
+	Host            string   `json:"host,omitempty"`             // Affected host (if command spec check)
+	Runas           string   `json:"runas,omitempty"`            // Target runas user/group (if command spec check)
+	Command         string   `json:"command,omitempty"`          // Command path involved (if command spec check)
+	Context         string   `json:"context,omitempty"`          // Location/file information if available
+	Line            int      `json:"line,omitempty"`             // Line number in source policy if available
+	Remediation     string   `json:"remediation"`                // How to fix the finding
+	RemediationCode string   `json:"remediation_code,omitempty"` // Concrete command(s) to run or secure sudoers configuration snippet
+	ExploitPoC      string   `json:"exploit_poc,omitempty"`      // Reference command illustrating the capability
+	Compliance      []string `json:"compliance,omitempty"`       // Compliance references (e.g. ANSSI-BP-028, CIS)
 }
 
 // CountBySeverity returns a map of severity levels to their counts across one or more finding slices.
@@ -114,13 +115,14 @@ func SortFindingsBySeverity(findings []Finding) {
 type DigestList []string
 
 // UnmarshalJSON decodes either a single JSON string or a JSON array of strings.
+// When cvtsudoers outputs multiple digests of the same algorithm on a single command,
+// it emits duplicate JSON keys in the same object, causing encoding/json to invoke
+// UnmarshalJSON multiple times on the same DigestList field.
 func (d *DigestList) UnmarshalJSON(data []byte) error {
 	var single string
 	if err := json.Unmarshal(data, &single); err == nil {
 		if single != "" {
-			*d = DigestList{single}
-		} else {
-			*d = nil
+			*d = append(*d, single)
 		}
 		return nil
 	}
@@ -166,6 +168,7 @@ type Member struct {
 	SHA384       DigestList `json:"sha384,omitempty"`
 	SHA512       DigestList `json:"sha512,omitempty"`
 	Myself       bool       `json:"-"`
+	File         string     `json:"-"`
 	Line         int        `json:"-"`
 }
 
@@ -286,6 +289,7 @@ type UserSpec struct {
 	UserList  []Member   `json:"User_List"`
 	HostList  []Member   `json:"Host_List"`
 	CmndSpecs []CmndSpec `json:"Cmnd_Specs"`
+	File      string     `json:"-"`
 	Line      int        `json:"-"`
 }
 
@@ -293,6 +297,7 @@ type UserSpec struct {
 type DefaultBinding struct {
 	Binding []Member `json:"Binding,omitempty"`
 	Options []Option `json:"Options"`
+	File    string   `json:"-"`
 	Line    int      `json:"-"`
 }
 
@@ -304,6 +309,7 @@ type SudoersPolicy struct {
 	HostAliases    map[string][]Member `json:"Host_Aliases,omitempty"`
 	CommandAliases map[string][]Member `json:"Command_Aliases,omitempty"`
 	UserSpecs      []UserSpec          `json:"User_Specs,omitempty"`
+	IncludedFiles  []string            `json:"-"`
 }
 
 // AuditResult gathers all findings from a policy audit and system checks.

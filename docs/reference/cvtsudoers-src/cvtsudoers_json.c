@@ -65,6 +65,7 @@ print_command_json(struct json_container *jsonc, const char *name, bool negated)
     char *cmnd = c->cmnd;
     unsigned int digest_type;
     const char *digest_name;
+    bool ret = false;
     debug_decl(print_command_json, SUDOERS_DEBUG_UTIL);
 
     /* Print command with optional command line args. */
@@ -78,13 +79,13 @@ print_command_json(struct json_container *jsonc, const char *name, bool negated)
     if (!negated && TAILQ_EMPTY(&c->digests)) {
 	/* Print as { "command": "command and args" } */
 	if (!sudo_json_add_value_as_object(jsonc, "command", &value))
-	    debug_return_bool(false);
+	    goto done;
     } else {
 	/* Print as multi-line object. */
 	if (!sudo_json_open_object(jsonc, NULL))
-	    debug_return_bool(false);
+	    goto done;
 	if (!sudo_json_add_value(jsonc, "command", &value))
-	    debug_return_bool(false);
+	    goto done;
 
 	/* Optional digest list, ordered by digest type. */
 	for (digest_type = 0; digest_type < SUDO_DIGEST_INVALID; digest_type++) {
@@ -100,7 +101,7 @@ print_command_json(struct json_container *jsonc, const char *name, bool negated)
 	    digest_name = digest_type_to_name(digest_type);
 	    if (ndigests > 1) {
 		if (!sudo_json_open_array(jsonc, digest_name))
-		    debug_return_bool(false);
+		    goto done;
 		/* Only use digest_name for the array key, not value. */
 		digest_name = NULL;
 	    }
@@ -110,11 +111,11 @@ print_command_json(struct json_container *jsonc, const char *name, bool negated)
 		value.type = JSON_STRING;
 		value.u.string = digest->digest_str;
 		if (!sudo_json_add_value(jsonc, digest_name, &value))
-		    debug_return_bool(false);
+		    goto done;
 	    }
 	    if (ndigests > 1) {
 		if (!sudo_json_close_array(jsonc))
-		    debug_return_bool(false);
+		    goto done;
 	    }
 	}
 
@@ -123,17 +124,19 @@ print_command_json(struct json_container *jsonc, const char *name, bool negated)
 	    value.type = JSON_BOOL;
 	    value.u.boolean = true;
 	    if (!sudo_json_add_value(jsonc, "negated", &value))
-		debug_return_bool(false);
+		goto done;
 	}
 
 	if (!sudo_json_close_object(jsonc))
-	    debug_return_bool(false);
+	    goto done;
     }
+    ret = true;
 
+done:
     if (cmnd != c->cmnd)
 	free(cmnd);
 
-    debug_return_bool(true);
+    debug_return_bool(ret);
 }
 
 /*
