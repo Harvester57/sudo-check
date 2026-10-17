@@ -16,24 +16,32 @@ evaluation semantics, SARIF rule descriptors, or cross-platform tests.
 - **Command rules**: `SUDO-CMD-XXX` in `pkg/audit/rules_commands.go`
 - **GTFObins rules**: `SUDO-GTFO-XXX` in `pkg/audit/rules_commands.go`
 - **System permission rules**: `SUDO-SYS-PERM-XXX` in `pkg/audit/rules_system.go`
-- **System CVE rules**: `SUDO-SYS-CVE-YYYY-NNNNN` in `pkg/audit/rules_system.go`
+- **System CVE rules**: `CVE-YYYY-NNNNN` in `pkg/audit/rules_system.go`
 - Populate `Compliance` with applicable `ANSSI-BP-028` and `CIS` benchmark IDs.
+- Always populate `RemediationCode` (`json:"remediation_code,omitempty"`) with a concrete, copy-pasteable `sudoers` configuration snippet or shell command(s) tailored to the finding's context (`User`, `Host`, `Runas`, `Command`, `Context`, or scoped `Defaults` binding). Keep prose explanations in `Remediation`, remediation commands/config in `RemediationCode`, and verification/exploit commands in `ExploitPoC`.
 
 ## 2. Follow Evaluation Invariants
 - **For `Defaults` checks (`pkg/audit/rules_defaults.go`)**:
   - Never scan `policy.Defaults` with an early-return first-match loop.
-  - Add any newly tracked option to `defaultsState` and update `reduceGlobalDefaults`
+  - Add any newly tracked option to `defaultsState` and update `applyOptionsFrom`
     so `=`, `+=`, `-=`, and `!flag` follow `sudo`'s last-match-wins semantics.
   - Check both global defaults and scoped `Defaults` (`Defaults@host`, `Defaults:user`,
-    `Defaults!cmnd`, `Defaults>runas`) in `auditScopedDefaults` when the option can be
-    overridden per scope.
+    `Defaults!cmnd`, `Defaults>runas`) when the option can be overridden per scope, and
+    use `formatScopedDefaultsDirective(def.Binding, scopeLabel)` when constructing
+    `RemediationCode` for scoped findings.
 - **For Command checks (`pkg/audit/rules_commands.go`)**:
   - Operate on the alias-expanded users, hosts, runas targets, and commands.
-  - Populate `User`, `Host`, `Runas`, `Command`, and `Line` on the emitted `Finding`.
+  - Populate `User`, `Host`, `Runas`, `Command`, `Context`, `Line`, and `RemediationCode`
+    on the emitted `Finding`.
+  - Ensure `RemediationCode` is computed deterministically from normalized policy fields
+    so `TestOracleComparisonWithCvtsudoers` and `TestRealWorldCorpusDifferentialAndStress`
+    (`reflect.DeepEqual` between `cvtsudoers` JSON and native parser output) continue to match.
 - **For System permission checks (`pkg/audit/rules_system.go`)**:
   - Put permission/ownership evaluation logic inside a pure helper function taking
     `(path string, mode os.FileMode, uid, gid int, checkOwnership bool)` so unit tests
     on Windows can test all branches (`checkOwnership = true`) without Unix syscalls.
+  - Populate `RemediationCode` with exact `chown`/`chmod` and `visudo -c -f` verification
+    commands referencing the target path.
 
 ## 3. Register Parameterized Titles in SARIF
 If the new rule's `Finding.Title` embeds a dynamic binary or option name (like
@@ -42,7 +50,7 @@ If the new rule's `Finding.Title` embeds a dynamic binary or option name (like
 is not polluted by the first finding's instance title.
 
 ## 4. Verify
-1. Add unit tests in `pkg/audit/auditor_test.go`.
+1. Add unit tests in `pkg/audit/auditor_test.go` (note that `TestRunAudit_VulnerablePolicy` asserts every finding has a non-empty `RemediationCode`).
 2. If `pkg/parser` or `pkg/audit/types.go` was touched, run `go test -v ./pkg/parser/...`
-   to verify `TestOracleComparisonWithCvtsudoers` still passes.
+   to verify `TestOracleComparisonWithCvtsudoers` and `TestRealWorldCorpusDifferentialAndStress` still pass.
 3. Run `go test "-coverprofile=coverage.out" ./...` and `go vet ./...`.

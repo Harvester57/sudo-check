@@ -17,6 +17,7 @@ Welcome! This repository contains `sudo-check`, a security audit utility for sud
   - [version.go](cmd/version.go): Command to print the build version, commit, and date injected via ldflags.
 - **`pkg/parser/`**:
   - [parser.go](pkg/parser/parser.go): Native Go `sudoers` parser supporting `#include`/`#includedir` (`@include`/`@includedir`), global and scoped `Defaults`, `User_Alias`/`Runas_Alias`/`Host_Alias`/`Cmnd_Alias`, `User_Spec` rules, tags, digests, and source line tracking.
+  - [corpus_test.go](pkg/parser/corpus_test.go): Differential oracle and stress tests across the 105-file real-world corpus in [testdata/corpus/](testdata/corpus/README.md) (`distros/`, `upstream_regress/`, `upstream_regress_invalid/`, `enterprise_cloud/`).
 - **`pkg/gtfobins/`**:
   - [client.go](pkg/gtfobins/client.go): Loads the embedded GTFObins snapshot (`database.json` via `go:embed`) or external file. Normalizes versioned/variant binary names, resolves alias and `inherit` (`from`) chains, and consolidates findings per `(binary, function)`.
 - **`pkg/audit/`**:
@@ -101,11 +102,15 @@ To ensure the CI build will pass, agents must run the following checks locally:
 
 ## 3. Domain & Schema Invariants
 
-- **Parser Oracle Parity (`pkg/parser`)**: `TestOracleComparisonWithCvtsudoers` in [parser_test.go](pkg/parser/parser_test.go) compares `parser.ParseString` against `cvtsudoers -f json` (invoked directly on Unix or via `wsl /usr/bin/cvtsudoers` on Windows). Any changes to `pkg/parser/` or `pkg/audit/types.go` must maintain parity with `cvtsudoers` JSON output and `audit.RunAudit` findings.
+- **Parser Oracle Parity (`pkg/parser`)**: `TestOracleComparisonWithCvtsudoers` in [parser_test.go](pkg/parser/parser_test.go) and `TestRealWorldCorpusDifferentialAndStress` in [corpus_test.go](pkg/parser/corpus_test.go) compare `parser.ParseString` against `cvtsudoers -f json` (invoked directly on Unix or via `wsl /usr/bin/cvtsudoers` on Windows). Any changes to `pkg/parser/` or `pkg/audit/types.go` must maintain parity with `cvtsudoers` JSON output and `audit.RunAudit` findings across the entire corpus.
 - **`cvtsudoers` JSON Schema Quirks**:
-  - `Cmnd_Spec.Options` is a JSON array of single-key option objects (`[]audit.Option`), not a single JSON object.
-  - `Digest_Spec` hash fields (`sha224`, `sha256`, `sha384`, `sha512`) use `audit.DigestList` to unmarshal both single strings and string arrays.
+  - `Cmnd_Spec.Options` is a JSON array of single-key option objects (`[]audit.Option`) emitted in exact `cvtsudoers_json.c` order: pre-tag options (`runchroot`, `runcwd`, `command_timeout`, `notbefore`, `notafter`), then tags (`authenticate`, `noexec`, `intercept`, `send_mail`, `setenv`, `sudoedit_follow`, `log_input`, `log_output`), then post-tag options (`role`, `type`, `apparmor_profile`, `privs`, `limitprivs`).
+  - Adjacent commands in a `Cmnd_Spec_List` are merged into the same `Cmnd_Spec` unless `runas`, tags, or non-timeout/non-timestamp options (`runchroot`, `runcwd`, `role`, `type`, `apparmor_profile`, `privs`, `limitprivs`) change, matching `cmndspec_continues` in `cvtsudoers_json.c`.
+  - `Digest_Spec` hash fields (`sha224`, `sha256`, `sha384`, `sha512`) use `audit.DigestList` to unmarshal both single strings and string arrays, and must append on single-string unmarshals because `cvtsudoers` emits duplicate JSON keys in the same object when multiple digests share the same algorithm.
   - `Member` command alias references must support both `"cmndalias"` (emitted by `cvtsudoers` 1.9+) and `"commandalias"`.
+  - `NOTBEFORE` and `NOTAFTER` ASN.1 GeneralizedTime values (`YYYYMMDDHH[MM[SS]][(.|,)frac][Z|(+|-)HH[MM]]`) are normalized to UTC `%Y%m%d%H%M%SZ`.
+  - POSIX ERE regular expression command paths and arguments (`^...$`) may contain unescaped `,`, `:`, `(`, `)`, `=`, and preserved `\x` escapes up to the closing unescaped `$`.
 - **Audit Semantics**:
   - `Defaults` options must be evaluated sequentially using last-match-wins semantics (`list_assign`, `list_add`, `list_remove`, and `!flag` resets).
   - GTFObins findings are consolidated to **one finding per `(rule, binary, function)`**, and `noexec` only mitigates `shell` and `command` functions (never `library-load`, `file-read`, `file-write`, `suid`, `sudo`, or `capabilities`).
+  - Every emitted `Finding` must populate `RemediationCode` deterministically with copy-pasteable `sudoers` configuration directives or shell commands (kept separate from prose `Remediation` and `ExploitPoC`).
