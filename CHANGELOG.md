@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-19
+
+### Added
+- **Release Builds & CI**: Added macOS release binaries (`darwin/amd64`, `darwin/arm64`), `SHA256SUMS` release checksums, Windows CI test execution, and automated `govulncheck` vulnerability scanning.
+- **HTML Report (`Rule ID` Grouping)**: Completed the shared remediation summary box when grouping findings by Rule ID, displaying a single copy-pasteable fix above all occurrences of the same rule.
+
+### Changed
+- **HTML Report Performance & Size**: Reduced generated HTML file size by ~37% and improved rendering and grouping speed on large reports via event delegation and deferred off-screen rendering.
+- **Go Toolchain**: Bumped minimum Go version in `go.mod` to `1.26.9`.
+
+### Fixed
+- **HTML Report Accessibility & Contrast**: Fixed WCAG AA color contrast issues across dark and light themes, converted clickable filter pills and metric cards to native keyboard-accessible buttons, fixed HTML5 landmark structure across all tabs, and enabled browser Find-in-Page (`Ctrl+F`) to automatically expand matching rows in compact view.
+
 ## [0.2.0] - 2026-10-18
 
 ### Added
@@ -48,6 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-format reporting (Text, JSON, SARIF, HTML, and PDF).
 - GitHub Actions CI/CD pipeline with cross-platform binary matrix builds (`linux/amd64`, `linux/arm64`, `windows/amd64`) and CycloneDX SBOM generation.
 
+[0.2.1]: https://github.com/Harvester57/sudo-check/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Harvester57/sudo-check/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Harvester57/sudo-check/compare/v0.0.2...v0.1.0
 [0.0.2]: https://github.com/Harvester57/sudo-check/compare/v0.0.1...v0.0.2
