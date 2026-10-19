@@ -21,45 +21,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2026-10-18
 
 ### Added
-- Redesigned self-contained HTML report (`pkg/report/html.go`, `pkg/report/reference_data.go`) into a three-tab WAI-ARIA navigation experience (`Audit Report`, `Reference Frameworks`, and `Hardened Reference Template`) with full keyboard support (`ArrowLeft`, `ArrowRight`, `Home`, `End`).
-- **Tab 2 — Reference Frameworks Catalog**: Verbatim requirements, security rationale, required `sudoers` directives, and live deduplicated violation counts across **ANSSI BP-028** (`R38`–`R42`/`R44` in both English and original French), **CIS Linux Benchmark Section 5.2** (`CIS-5.2.1`–`CIS-5.2.7`), **DISA STIG** (`SV-230273`/`SV-230274`/`SV-230275`), and **MITRE ATT&CK** (`T1548.003`), with interactive search/status filtering (`All`, `Violated Only`, `Compliant Only`) and one-click cross-navigation to triggered findings in Tab 1 or baseline sections in Tab 3.
-- **Tab 3 — Hardened Reference Template & Traceability Matrix**: Copy-pasteable, annotated `/etc/sudoers` reference baseline policy (`HardenedSudoersReferencePolicy()`, verified by unit tests to parse cleanly and produce zero findings under `audit.RunAudit`), modular `/etc/sudoers.d/10-app-deploy` drop-in example, hardened root-owned wrapper script pattern (mitigating GTFObins and wildcards via SHA-256 digest pinning), host permission remediation runbook (`SUDO-SYS-PERM-001`–`013`), and a complete 32-rule Traceability Matrix linking every `SUDO-DEF-*`, `SUDO-CMD-*`, `SUDO-GTFO-*`, and `SUDO-SYS-PERM-*` rule to its governing frameworks and hardening directive.
-- Added pre-generated interactive sample HTML report (`docs/example-report.html`) and updated `README.md` documentation.
+- **Three-Tab HTML Report**: Expanded the interactive HTML report into three tabs:
+  - **Audit Report**: Triage dashboard with grouping by file, rule, user, or severity.
+  - **Reference Frameworks**: Searchable catalog of **ANSSI BP-028** (English and French), **CIS Linux Benchmark**, **DISA STIG**, and **MITRE ATT&CK (`T1548.003`)** requirements with live violation counts.
+  - **Hardened Reference Template**: Copy-pasteable zero-finding `/etc/sudoers` baseline, `/etc/sudoers.d/` drop-in example, wrapper script pattern, permission fix commands, and rule-to-standard traceability table.
+- **Example Report**: Added a pre-generated sample report at `docs/example-report.html`.
 
 ## [0.1.0] - 2026-10-17
 
 ### Added
-- Native Go `sudoers` configuration parser (`pkg/parser`) supporting `#include`/`#includedir` and `@include`/`@includedir`, global and scoped `Defaults`, `User_Alias`/`Runas_Alias`/`Host_Alias`/`Cmnd_Alias`, `User_Spec` rules, tags, digests, and source file/line tracking without requiring `cvtsudoers`.
-- Full parity with `cvtsudoers -f json` schema, including pre-tag/tag/post-tag option ordering, `cmndspec_continues` command merging rules, ASN.1 `GeneralizedTime` UTC normalization (`NOTBEFORE`/`NOTAFTER`), POSIX ERE regular expression command/argument handling, and duplicate digest key unmarshaling (`DigestList`).
-- Real-world 105-file `sudoers` test corpus (`testdata/corpus/`) covering Linux/BSD/macOS distributions, upstream `sudo` regression suites, and enterprise/cloud policies, validated via differential oracle and stress tests against `cvtsudoers`.
-- Expanded defaults audit rules (`SUDO-DEF-001` through `SUDO-DEF-016`) using last-match-wins sequential reduction across global and scoped `Defaults` (`secure_path`, `use_pty`, `env_keep`/`env_check`/`env_delete`, `visiblepw`, `pwfeedback`, `noexec`, `requiretty`, `umask`, `ignore_dot`, `env_reset`, `!authenticate`, `setenv`, `sudoedit_follow`/`!sudoedit_checkdir`, `timestamp_timeout`/`passwd_timeout`/`timestamp_type=global`, and `runchroot`/`runcwd=*`).
-- Expanded command and privilege escalation audit rules (`SUDO-CMD-001` through `SUDO-CMD-012`, `SUDO-GTFO-001` through `SUDO-GTFO-003`) covering negated commands (`!cmd`), `ALL` privileges (`PASSWD` and `NOPASSWD`), wildcards, passwordless specific commands, missing argument restrictions, direct text editor execution, negated `User`/`Host`/`Runas` specifications, per-command `SETENV`/`FOLLOW`/`CHROOT`/`CWD=*` overrides, sensitive `sudoedit` targets, relative or user-writable/temporary command paths, and weak `sha224` digests.
-- Enhanced GTFObins database loader (`pkg/gtfobins`) with alias/inheritance (`from`) resolution, versioned binary name normalization, function-level consolidation per `(rule, binary, function)`, and accurate `noexec` mitigation scoping.
-- Expanded live system and CVE checks (`pkg/audit/rules_system.go`) covering `sudo` version vulnerability ranges (`CVE-2019-14287`, `CVE-2019-18634`, `CVE-2021-3156`, `CVE-2022-43995`, `CVE-2023-22809`, `CVE-2023-27320`, `CVE-2025-32462`, `CVE-2025-32463`), `/etc/sudoers` and `/etc/sudoers.d` ownership/permissions (`SUDO-SYS-PERM-001` through `SUDO-SYS-PERM-011`), `sudo` binary SUID bit and ownership, and permitted target binary and parent directory write permissions (`SUDO-SYS-PERM-012`, `SUDO-SYS-PERM-013`).
-- Deterministic, copy-pasteable `RemediationCode` snippets and separated `ExploitPoC` references across all policy and system findings.
-- Redesigned self-contained HTML report (`pkg/report/html.go`) featuring interactive multi-file, rule, and principal triage panels, pseudo-sudoers rule previews, dark/light theme support, client-side filtering, and deferred rendering (`content-visibility: auto`).
-- Enriched Text, JSON, SARIF v2.1.0, and PDF report formatters with dedicated remediation code and exploit reference sections.
+- **Built-in `sudoers` Parser**: Native Go parser for raw `/etc/sudoers` and `#includedir` drop-in files with full `cvtsudoers` JSON compatibility—no external `sudo` binary required for offline scans.
+- **Expanded Policy & GTFObins Rules**: Added 16 `Defaults` rules (`SUDO-DEF-001`–`016`), 12 command rules (`SUDO-CMD-001`–`012`), and 3 GTFObins rules (`SUDO-GTFO-001`–`003`) covering wildcards, negations, missing argument restrictions, `sudoedit` targets, environment variables, and `NOEXEC` bypasses.
+- **System & CVE Checks**: Added checks for 8 `sudo` CVEs (`CVE-2019-14287` through `CVE-2025-32463`) and host file/directory ownership and permission audits (`SUDO-SYS-PERM-001`–`013`).
+- **Actionable Remediations & Reports**: Added copy-pasteable fix commands and exploit verification references across HTML, PDF, SARIF, JSON, and Text reports.
 
 ### Fixed
-- Deduplicated included drop-in files during directory scans (`sudo-check scan <dir>`) when both a root `sudoers` file and `#includedir` drop-ins are present, while still auditing standalone `.sudoers` files.
-- Preserved exact per-file `Finding.Context` attribution across `#include` and `#includedir` directives.
-- Preferred local `baseDir` candidates over host `/etc` paths when resolving `/etc/...` includes during offline directory scans.
+- **Directory Scans & Includes**: Avoided duplicate findings when scanning directories that contain both `/etc/sudoers` and `#includedir` drop-in files, and preserved exact file and line attribution for every finding.
 
 ## [0.0.2] - 2026-09-28
 
 ### Added
-- Added ANSSI-BP-028 compliance control checks for `sudoers` policies.
+- **ANSSI BP-028 Checks**: Added compliance checks and tags based on ANSSI Linux configuration guidelines.
 
 ### Changed
-- Updated GitHub Actions workflow dependencies (`actions/checkout`, `actions/setup-go`, `sbomify/sbomify-action`) and Dependabot schedule configuration.
+- **CI Dependencies**: Updated GitHub Actions workflows and Dependabot configuration.
 
 ## [0.0.1] - 2026-06-13
 
 ### Added
-- Initial release of `sudo-check` CLI (`scan`, `system`, `update-db`, `version` commands).
-- Policy auditing via `cvtsudoers` JSON wrapper and embedded GTFObins database.
-- Multi-format reporting (Text, JSON, SARIF, HTML, and PDF).
-- GitHub Actions CI/CD pipeline with cross-platform binary matrix builds (`linux/amd64`, `linux/arm64`, `windows/amd64`) and CycloneDX SBOM generation.
+- **Initial Release**: Core `sudo-check` CLI (`scan`, `system`, `update-db`, `version`) with `cvtsudoers` JSON policy auditing, embedded GTFObins detection, and Text, JSON, SARIF, HTML, and PDF report exporters.
 
 [0.2.1]: https://github.com/Harvester57/sudo-check/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Harvester57/sudo-check/compare/v0.1.0...v0.2.0
