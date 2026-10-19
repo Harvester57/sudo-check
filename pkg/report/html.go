@@ -27,7 +27,6 @@ type htmlFindingView struct {
 	RemediationCodeLabel     string
 	EffectiveExploitPoC      string
 	ComplianceCSV            string
-	SearchText               string
 }
 
 type htmlFileSummary struct {
@@ -283,28 +282,6 @@ func enrichFinding(f audit.Finding, category string, idx int) htmlFindingView {
 	cleanRem, effectiveRemCode, remCodeLabel, effectivePoC := resolveFindingRemediationAndExploit(f, category)
 	compCSV := strings.Join(f.Compliance, ",")
 
-	searchParts := []string{
-		f.ID,
-		f.Title,
-		f.Description,
-		string(f.Severity),
-		category,
-		domain,
-		domainLabel,
-		f.User,
-		f.Host,
-		f.Runas,
-		f.Command,
-		sourceFile,
-		location,
-		rulePreview,
-		cleanRem,
-		effectiveRemCode,
-		effectivePoC,
-		strings.Join(f.Compliance, " "),
-	}
-	searchText := strings.ToLower(strings.Join(searchParts, " "))
-
 	return htmlFindingView{
 		Finding:                  f,
 		Index:                    idx,
@@ -322,7 +299,6 @@ func enrichFinding(f audit.Finding, category string, idx int) htmlFindingView {
 		RemediationCodeLabel:     remCodeLabel,
 		EffectiveExploitPoC:      effectivePoC,
 		ComplianceCSV:            compCSV,
-		SearchText:               searchText,
 	}
 }
 
@@ -583,10 +559,22 @@ const htmlTemplateStr = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
     <meta name="description" content="Sudoers Security Audit Report. Identifies security misconfigurations, dangerous defaults, and GTFObins bypass vulnerabilities.">
     <title>Sudoers Audit Report - {{if .Hostname}}{{.Hostname}}{{else}}localhost{{end}}</title>
+    <script>
+        (function() {
+            try {
+                var saved = localStorage.getItem('sudo-check-theme');
+                if (saved === 'light' || saved === 'dark') {
+                    document.documentElement.setAttribute('data-theme', saved);
+                }
+            } catch (e) {}
+        })();
+    </script>
     <style>
         :root {
+            color-scheme: dark;
             --bg-gradient-start: #0b0f19;
             --bg-gradient-end: #020617;
             --panel-bg: rgba(17, 24, 39, 0.78);
@@ -595,59 +583,103 @@ const htmlTemplateStr = `<!DOCTYPE html>
             --panel-border-strong: rgba(255, 255, 255, 0.14);
             --surface-subtle: rgba(0, 0, 0, 0.22);
             --surface-hover: rgba(255, 255, 255, 0.05);
+            --pre-bg: rgba(0, 0, 0, 0.32);
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
             --font-primary: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             --font-code: 'Space Mono', 'JetBrains Mono', 'Fira Code', Consolas, monospace;
-            --accent-primary: #6366f1;
-            --accent-primary-bg: rgba(99, 102, 241, 0.16);
-            --accent-crit: #ff453a;
-            --accent-high: #bf5af2;
+            --accent-primary: #4f46e5;
+            --accent-primary-bg: rgba(79, 70, 229, 0.16);
+            --accent-crit: #ff6961;
+            --accent-high: #d8b4fe;
             --accent-med: #ff9f0a;
             --accent-low: #64d2ff;
-            --accent-info: #0a84ff;
+            --accent-info: #60a5fa;
             --accent-crit-bg: rgba(255, 69, 58, 0.15);
             --accent-high-bg: rgba(191, 90, 242, 0.15);
             --accent-med-bg: rgba(255, 159, 10, 0.15);
             --accent-low-bg: rgba(100, 210, 255, 0.15);
             --accent-info-bg: rgba(10, 132, 255, 0.15);
-            --remediation-accent: #10b981;
+            --remediation-accent: #34d399;
             --remediation-bg: rgba(16, 185, 129, 0.07);
-            --exploit-accent: #f59e0b;
+            --exploit-accent: #fbbf24;
             --exploit-bg: rgba(245, 158, 11, 0.08);
             --code-text: #34d399;
             --exploit-code-text: #fbbf24;
+            --domain-badge-bg: rgba(56, 189, 248, 0.12);
+            --domain-badge-text: #38bdf8;
+            --domain-badge-border: rgba(56, 189, 248, 0.25);
+            --indigo-badge-bg: rgba(99, 102, 241, 0.14);
+            --indigo-badge-bg-hover: rgba(99, 102, 241, 0.25);
+            --indigo-badge-text: #a5b4fc;
+            --indigo-badge-border: rgba(99, 102, 241, 0.3);
+            --link-color: #38bdf8;
             --shadow-glow: rgba(0, 0, 0, 0.45);
         }
 
         [data-theme="light"] {
+            color-scheme: light;
             --bg-gradient-start: #f8fafc;
             --bg-gradient-end: #e2e8f0;
-            --panel-bg: rgba(255, 255, 255, 0.88);
-            --panel-bg-elevated: rgba(255, 255, 255, 0.96);
-            --panel-border: rgba(15, 23, 42, 0.09);
-            --panel-border-strong: rgba(15, 23, 42, 0.16);
+            --panel-bg: rgba(255, 255, 255, 0.92);
+            --panel-bg-elevated: rgba(255, 255, 255, 0.98);
+            --panel-border: rgba(15, 23, 42, 0.1);
+            --panel-border-strong: rgba(15, 23, 42, 0.18);
             --surface-subtle: rgba(15, 23, 42, 0.04);
-            --surface-hover: rgba(15, 23, 42, 0.05);
+            --surface-hover: rgba(15, 23, 42, 0.06);
+            --pre-bg: #f1f5f9;
             --text-main: #0f172a;
             --text-muted: #475569;
-            --accent-crit: #dc2626;
-            --accent-high: #9333ea;
-            --accent-med: #d97706;
-            --accent-low: #0284c7;
-            --accent-info: #2563eb;
-            --accent-crit-bg: rgba(220, 38, 38, 0.1);
-            --accent-high-bg: rgba(147, 51, 234, 0.1);
-            --accent-med-bg: rgba(217, 119, 6, 0.1);
-            --accent-low-bg: rgba(2, 132, 199, 0.1);
-            --accent-info-bg: rgba(37, 99, 235, 0.1);
-            --remediation-accent: #059669;
-            --remediation-bg: rgba(5, 150, 105, 0.06);
-            --exploit-accent: #d97706;
-            --exploit-bg: rgba(217, 119, 6, 0.07);
-            --code-text: #047857;
-            --exploit-code-text: #b45309;
+            --accent-crit: #b91c1c;
+            --accent-high: #7e22ce;
+            --accent-med: #92400e;
+            --accent-low: #0369a1;
+            --accent-info: #1d4ed8;
+            --accent-crit-bg: rgba(185, 28, 28, 0.09);
+            --accent-high-bg: rgba(126, 34, 206, 0.09);
+            --accent-med-bg: rgba(146, 64, 14, 0.09);
+            --accent-low-bg: rgba(3, 105, 161, 0.09);
+            --accent-info-bg: rgba(29, 78, 216, 0.09);
+            --remediation-accent: #047857;
+            --remediation-bg: rgba(4, 120, 87, 0.06);
+            --exploit-accent: #92400e;
+            --exploit-bg: rgba(146, 64, 14, 0.07);
+            --code-text: #065f46;
+            --exploit-code-text: #92400e;
+            --domain-badge-bg: rgba(3, 105, 161, 0.09);
+            --domain-badge-text: #0369a1;
+            --domain-badge-border: rgba(3, 105, 161, 0.25);
+            --indigo-badge-bg: rgba(67, 56, 202, 0.09);
+            --indigo-badge-bg-hover: rgba(67, 56, 202, 0.18);
+            --indigo-badge-text: #4338ca;
+            --indigo-badge-border: rgba(67, 56, 202, 0.28);
+            --link-color: #0369a1;
             --shadow-glow: rgba(148, 163, 184, 0.22);
+        }
+
+        .skip-link {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            z-index: 100;
+            padding: 0.5rem 1rem;
+            background: var(--accent-primary);
+            color: #ffffff;
+            font-weight: 600;
+            border-radius: 6px;
+            text-decoration: none;
+        }
+
+        .skip-link:not(:focus):not(:active) {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip-path: inset(50%);
+            white-space: nowrap;
+            border: 0;
         }
 
         * {
@@ -671,7 +703,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             margin: 0 auto;
         }
 
-        /* Header */
+        {{- /* Header */}}
         header {
             display: flex;
             justify-content: space-between;
@@ -731,7 +763,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-color: var(--panel-border-strong);
         }
 
-        /* System Metadata Strip */
+        {{- /* System Metadata Strip */}}
         .system-meta {
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
@@ -766,7 +798,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border: 1px solid var(--panel-border);
         }
 
-        /* Metrics Dashboard */
+        {{- /* Metrics Dashboard */}}
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(5, minmax(140px, 1fr));
@@ -786,6 +818,9 @@ const htmlTemplateStr = `<!DOCTYPE html>
             overflow: hidden;
             cursor: pointer;
             user-select: none;
+            color: var(--text-main);
+            font-family: var(--font-primary);
+            width: 100%;
             transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
         }
 
@@ -815,6 +850,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         .card-info::before { background: var(--accent-info); }
 
         .metric-num {
+            display: block;
             font-size: 2.1rem;
             font-weight: 700;
             margin: 0.25rem 0 0.1rem;
@@ -822,6 +858,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .metric-label {
+            display: block;
             font-size: 0.78rem;
             font-weight: 600;
             text-transform: uppercase;
@@ -830,12 +867,12 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .metric-hint {
+            display: block;
             font-size: 0.7rem;
             color: var(--text-muted);
-            opacity: 0.75;
         }
 
-        /* Proportional Severity Bar */
+        {{- /* Proportional Severity Bar */}}
         .severity-distribution {
             height: 8px;
             border-radius: 999px;
@@ -846,13 +883,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             margin-bottom: 1.5rem;
         }
 
-        .sev-seg-crit { background: var(--accent-crit); }
-        .sev-seg-high { background: var(--accent-high); }
-        .sev-seg-med { background: var(--accent-med); }
-        .sev-seg-low { background: var(--accent-low); }
-        .sev-seg-info { background: var(--accent-info); }
+        .sev-seg-crit { background: var(--accent-crit); width: {{printf "%.2f" .CritPct}}%; }
+        .sev-seg-high { background: var(--accent-high); width: {{printf "%.2f" .HighPct}}%; }
+        .sev-seg-med { background: var(--accent-med); width: {{printf "%.2f" .MedPct}}%; }
+        .sev-seg-low { background: var(--accent-low); width: {{printf "%.2f" .LowPct}}%; }
+        .sev-seg-info { background: var(--accent-info); width: {{printf "%.2f" .InfoPct}}%; }
 
-        /* Triage Intelligence Dashboard */
+        {{- /* Triage Intelligence Dashboard */}}
         .triage-overview {
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
@@ -923,6 +960,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
             color: var(--text-muted);
         }
 
+        .triage-panel-header-spaced {
+            margin-top: 0.25rem;
+        }
+
         .triage-list {
             display: flex;
             flex-direction: column;
@@ -991,7 +1032,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             margin-left: 0.2rem;
         }
 
-        /* Sticky Filter & Pivot Toolbar */
+        {{- /* Sticky Filter & Pivot Toolbar */}}
         .controls-panel {
             position: sticky;
             top: 0.75rem;
@@ -1120,13 +1161,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
             align-items: center;
         }
 
-        .filter-divider {
-            width: 1px;
-            height: 20px;
-            background: var(--panel-border-strong);
-            margin: 0 0.25rem;
-        }
-
         .filter-btn {
             background: var(--surface-subtle);
             border: 1px solid var(--panel-border);
@@ -1164,8 +1198,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .policy-filter-group.has-active-policy {
-            border-color: rgba(99, 102, 241, 0.45);
-            background: rgba(99, 102, 241, 0.04);
+            border-color: var(--indigo-badge-border);
+            background: rgba(79, 70, 229, 0.04);
         }
 
         .policy-filter-group .filter-btn-parent {
@@ -1182,8 +1216,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .policy-filter-group .filter-btn-parent.parent-context:not(.active) {
-            color: var(--accent-primary);
-            background: rgba(99, 102, 241, 0.1);
+            color: var(--indigo-badge-text);
+            background: var(--indigo-badge-bg);
         }
 
         .policy-subfilters {
@@ -1265,7 +1299,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-radius: 999px;
             background: var(--accent-primary-bg);
             color: var(--text-main);
-            border: 1px solid rgba(99, 102, 241, 0.35);
+            border: 1px solid var(--indigo-badge-border);
             font-size: 0.75rem;
             cursor: pointer;
         }
@@ -1286,7 +1320,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-color: var(--panel-border-strong);
         }
 
-        /* Findings Container & Groups */
+        {{- /* Findings Container & Groups */}}
         .findings-list {
             display: flex;
             flex-direction: column;
@@ -1301,7 +1335,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             overflow: hidden;
         }
 
-        /* Defer rendering only for below-the-fold groups and cards per defer-rendering-heavy-content */
+        {{- /* Defer rendering only for below-the-fold groups and cards per defer-rendering-heavy-content */}}
         .finding-card:nth-child(n+6),
         .finding-group:nth-child(n+4) {
             content-visibility: auto;
@@ -1330,7 +1364,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .group-header-left {
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 0.65rem;
             min-width: 0;
@@ -1385,7 +1419,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             gap: 0.85rem;
         }
 
-        /* Finding Card (Detailed Mode) */
+        {{- /* Finding Card (Detailed Mode) */}}
         .finding-card {
             background: var(--panel-bg);
             border: 1px solid var(--panel-border);
@@ -1432,14 +1466,23 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border: 1px solid var(--panel-border);
         }
 
+        button.finding-id {
+            cursor: pointer;
+        }
+
+        button.finding-id:hover {
+            border-color: var(--accent-primary);
+            background: var(--accent-primary-bg);
+        }
+
         .domain-badge {
             font-size: 0.7rem;
             font-weight: 600;
             padding: 0.12rem 0.48rem;
             border-radius: 4px;
-            background: rgba(56, 189, 248, 0.12);
-            color: #38bdf8;
-            border: 1px solid rgba(56, 189, 248, 0.25);
+            background: var(--domain-badge-bg);
+            color: var(--domain-badge-text);
+            border: 1px solid var(--domain-badge-border);
         }
 
         .location-pill {
@@ -1450,10 +1493,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-radius: 4px;
             background: var(--surface-subtle);
             border: 1px solid var(--panel-border);
+        }
+
+        button.location-pill {
             cursor: pointer;
         }
 
-        .location-pill:hover {
+        button.location-pill:hover {
             color: var(--text-main);
             border-color: var(--panel-border-strong);
         }
@@ -1525,7 +1571,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             gap: 0.85rem;
         }
 
-        /* Rule Preview Bar */
+        {{- /* Rule Preview Bar */}}
         .rule-preview-bar {
             display: flex;
             justify-content: space-between;
@@ -1592,11 +1638,18 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .finding-detail-item span,
-        .finding-detail-item code {
+        .finding-detail-item code,
+        .finding-detail-item button {
             overflow-wrap: anywhere;
         }
 
         .clickable-meta {
+            background: none;
+            border: none;
+            padding: 0;
+            color: var(--text-main);
+            font: inherit;
+            text-align: left;
             cursor: pointer;
             text-decoration: underline;
             text-decoration-style: dotted;
@@ -1604,7 +1657,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .clickable-meta:hover {
-            color: #818cf8;
+            color: var(--indigo-badge-text);
         }
 
         .compliance-tags {
@@ -1618,14 +1671,16 @@ const htmlTemplateStr = `<!DOCTYPE html>
             font-size: 0.72rem;
             padding: 0.18rem 0.55rem;
             border-radius: 4px;
-            background: rgba(99, 102, 241, 0.14);
-            color: #818cf8;
-            border: 1px solid rgba(99, 102, 241, 0.3);
+            background: var(--indigo-badge-bg);
+            color: var(--indigo-badge-text);
+            border: 1px solid var(--indigo-badge-border);
             cursor: pointer;
         }
 
-        .compliance-badge:hover {
-            background: rgba(99, 102, 241, 0.25);
+        .compliance-badge:hover,
+        .compliance-badge.active-facet {
+            background: var(--indigo-badge-bg-hover);
+            border-color: var(--accent-primary);
         }
 
         .finding-desc {
@@ -1673,14 +1728,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             text-transform: uppercase;
             letter-spacing: 0.04em;
             color: var(--remediation-accent);
-            opacity: 0.92;
         }
 
         .remediation-code-block pre {
             margin-top: 0.15rem;
         }
 
-        /* Dedicated Exploit / Verification Reference Box */
+        {{- /* Dedicated Exploit / Verification Reference Box */}}
         .finding-exploit {
             border-left: 3px solid var(--exploit-accent);
             background: var(--exploit-bg);
@@ -1704,7 +1758,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         pre {
-            background: rgba(0, 0, 0, 0.32);
+            background: var(--pre-bg);
             border: 1px solid var(--panel-border);
             padding: 0.65rem 0.9rem;
             border-radius: 7px;
@@ -1722,7 +1776,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             margin-top: 0.15rem;
         }
 
-        /* Compact Table / High-Density Mode */
+        {{- /* Compact Table / High-Density Mode */}}
         .findings-list.view-compact {
             gap: 0.45rem;
         }
@@ -1796,13 +1850,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             color: var(--text-muted);
         }
 
-        /* Focus Indicators (Modern Web Guidance accessibility) */
+        {{- /* Focus Indicators (Modern Web Guidance accessibility) */}}
         :where(button, a, select, input, summary, pre):focus-visible {
             outline: 2px solid var(--accent-primary);
             outline-offset: 2px;
         }
 
-        /* Top-Level WAI-ARIA View Tabs */
+        {{- /* Top-Level WAI-ARIA View Tabs */}}
         .view-tabs {
             display: flex;
             flex-wrap: wrap;
@@ -1843,7 +1897,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             background: var(--accent-primary);
             color: #ffffff;
             border-color: rgba(255, 255, 255, 0.18);
-            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+            box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
         }
 
         .tab-badge {
@@ -1852,7 +1906,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             font-weight: 700;
             padding: 0.12rem 0.48rem;
             border-radius: 999px;
-            background: rgba(0, 0, 0, 0.25);
+            background: rgba(0, 0, 0, 0.28);
             color: inherit;
             border: 1px solid rgba(255, 255, 255, 0.16);
         }
@@ -1864,13 +1918,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .tab-badge-ok {
-            background: rgba(16, 185, 129, 0.18) !important;
+            background: rgba(16, 185, 129, 0.14) !important;
             color: var(--remediation-accent) !important;
             border-color: rgba(16, 185, 129, 0.35) !important;
         }
 
         .view-tab-btn[aria-selected="true"] .tab-badge-ok {
-            background: rgba(255, 255, 255, 0.2) !important;
+            background: rgba(0, 0, 0, 0.28) !important;
             color: #ffffff !important;
             border-color: rgba(255, 255, 255, 0.35) !important;
         }
@@ -1879,7 +1933,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             display: none !important;
         }
 
-        /* Tab 2: Reference Frameworks & Verbatim Standards */
+        {{- /* Tab 2: Reference Frameworks & Verbatim Standards */}}
         .frameworks-intro-banner,
         .template-intro-banner {
             background: var(--panel-bg);
@@ -1957,7 +2011,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .framework-meta-links a {
-            color: #38bdf8;
+            color: var(--link-color);
             text-decoration: none;
         }
 
@@ -2004,9 +2058,9 @@ const htmlTemplateStr = `<!DOCTYPE html>
             font-weight: 700;
             padding: 0.14rem 0.5rem;
             border-radius: 4px;
-            background: var(--accent-primary-bg);
-            color: #818cf8;
-            border: 1px solid rgba(99, 102, 241, 0.32);
+            background: var(--indigo-badge-bg);
+            color: var(--indigo-badge-text);
+            border: 1px solid var(--indigo-badge-border);
         }
 
         .framework-level-pill {
@@ -2020,7 +2074,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         .badge-compliant {
-            background: rgba(16, 185, 129, 0.14);
+            background: var(--remediation-bg);
             color: var(--remediation-accent);
             border: 1px solid rgba(16, 185, 129, 0.35);
         }
@@ -2041,7 +2095,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: #818cf8;
+            color: var(--indigo-badge-text);
         }
 
         .verbatim-quote {
@@ -2059,7 +2113,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             white-space: pre-line;
         }
 
-        .req-CrossLinks {
+        .req-cross-links {
             display: flex;
             flex-wrap: wrap;
             justify-content: space-between;
@@ -2074,6 +2128,12 @@ const htmlTemplateStr = `<!DOCTYPE html>
             flex-wrap: wrap;
             align-items: center;
             gap: 0.35rem;
+        }
+
+        .req-pills-label {
+            font-size: 0.76rem;
+            color: var(--text-muted);
+            margin-right: 0.25rem;
         }
 
         .req-action-links {
@@ -2100,7 +2160,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             border-color: var(--accent-primary);
         }
 
-        /* Tab 3: Hardened Reference Template */
+        {{- /* Tab 3: Hardened Reference Template */}}
         .template-quick-nav {
             display: flex;
             flex-wrap: wrap;
@@ -2203,9 +2263,34 @@ const htmlTemplateStr = `<!DOCTYPE html>
         }
 
         @media print {
+            :root,
+            [data-theme="dark"],
+            [data-theme="light"] {
+                color-scheme: light !important;
+                --panel-bg: #ffffff !important;
+                --panel-bg-elevated: #ffffff !important;
+                --panel-border: #cbd5e1 !important;
+                --panel-border-strong: #94a3b8 !important;
+                --surface-subtle: #f8fafc !important;
+                --pre-bg: #f1f5f9 !important;
+                --text-main: #0f172a !important;
+                --text-muted: #475569 !important;
+                --accent-crit: #b91c1c !important;
+                --accent-high: #7e22ce !important;
+                --accent-med: #92400e !important;
+                --accent-low: #0369a1 !important;
+                --accent-info: #1d4ed8 !important;
+                --remediation-accent: #047857 !important;
+                --exploit-accent: #92400e !important;
+                --code-text: #065f46 !important;
+                --exploit-code-text: #92400e !important;
+                --domain-badge-text: #0369a1 !important;
+                --indigo-badge-text: #4338ca !important;
+                --link-color: #0369a1 !important;
+            }
             body {
                 background: #ffffff !important;
-                color: #000000 !important;
+                color: #0f172a !important;
                 padding: 0;
             }
             .controls-panel,
@@ -2214,6 +2299,9 @@ const htmlTemplateStr = `<!DOCTYPE html>
             .copy-btn,
             .compact-toggle-btn {
                 display: none !important;
+            }
+            .finding-expandable-body[hidden] {
+                display: flex !important;
             }
             .finding-card,
             .finding-group,
@@ -2232,6 +2320,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
     <div class="container">
         <header>
             <div class="header-title">
@@ -2243,12 +2332,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 <button class="action-btn" type="button" onclick="expandAllDisclosures(false)" title="Collapse all groups or compact rows">Collapse All</button>
                 <button class="action-btn" type="button" onclick="window.print()" title="Print or save as PDF">Print</button>
                 <button class="theme-toggle-btn" id="themeToggleBtn" type="button" onclick="toggleTheme()">
-                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 5a7 7 0 100 14 7 7 0 000-14z"/></svg>
+                    <svg aria-hidden="true" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.314 11.314l.707.707M12 5a7 7 0 100 14 7 7 0 000-14z"/></svg>
                     Toggle Theme
                 </button>
             </div>
         </header>
 
+        <main id="main-content" tabindex="-1">
         <section class="system-meta">
             <div class="meta-item"><strong>Target Host:</strong> <span class="meta-pill">{{if .Hostname}}{{.Hostname}}{{else}}localhost{{end}}</span></div>
             <div class="meta-item"><strong>Sudo Version:</strong> <span class="meta-pill">{{if .SudoVersion}}{{.SudoVersion}}{{else}}Unknown{{end}}</span></div>
@@ -2258,7 +2348,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             <div class="meta-item"><strong>Total Findings:</strong> <span class="meta-pill" id="totalFindingsCount">{{.TotalCount}}</span></div>
         </section>
 
-        <!-- Top-Level WAI-ARIA View Tabs -->
+        {{- /* Top-Level WAI-ARIA View Tabs */}}
         <div class="view-tabs" role="tablist" aria-label="Report Views" onkeydown="handleTablistKeydown(event)">
             <button type="button" class="view-tab-btn" role="tab" id="tab-report" aria-selected="true" aria-controls="panel-report" tabindex="0" onclick="switchViewTab('report')">
                 <span>Audit Report</span>
@@ -2274,48 +2364,58 @@ const htmlTemplateStr = `<!DOCTYPE html>
             </button>
         </div>
 
-        <!-- TAB PANEL 1: AUDIT REPORT -->
+        {{- /* TAB PANEL 1: AUDIT REPORT */}}
         <div id="panel-report" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-report">
-        <!-- Dashboard Metrics (Click any card to filter by severity) -->
-        <section class="metrics-grid">
-            <div class="metric-card card-crit" id="metric-crit" onclick="toggleSeverityCard('CRITICAL')" title="Click to filter Critical findings">
-                <div class="metric-label">Critical</div>
-                <div class="metric-num" id="crit-count">{{.CritCount}}</div>
-                <div class="metric-hint">Click to filter</div>
-            </div>
-            <div class="metric-card card-high" id="metric-high" onclick="toggleSeverityCard('HIGH')" title="Click to filter High findings">
-                <div class="metric-label">High</div>
-                <div class="metric-num" id="high-count">{{.HighCount}}</div>
-                <div class="metric-hint">Click to filter</div>
-            </div>
-            <div class="metric-card card-med" id="metric-med" onclick="toggleSeverityCard('MEDIUM')" title="Click to filter Medium findings">
-                <div class="metric-label">Medium</div>
-                <div class="metric-num" id="med-count">{{.MedCount}}</div>
-                <div class="metric-hint">Click to filter</div>
-            </div>
-            <div class="metric-card card-low" id="metric-low" onclick="toggleSeverityCard('LOW')" title="Click to filter Low findings">
-                <div class="metric-label">Low</div>
-                <div class="metric-num" id="low-count">{{.LowCount}}</div>
-                <div class="metric-hint">Click to filter</div>
-            </div>
-            <div class="metric-card card-info" id="metric-info" onclick="toggleSeverityCard('INFO')" title="Click to filter Info findings">
-                <div class="metric-label">Info</div>
-                <div class="metric-num" id="info-count">{{.InfoCount}}</div>
-                <div class="metric-hint">Click to filter</div>
-            </div>
+        {{- /* Dashboard Metrics (Click any card to filter by severity) */}}
+        <section class="metrics-grid" aria-label="Severity summary">
+            <button type="button" class="metric-card card-crit" id="metric-crit" aria-pressed="false" onclick="toggleSeverityCard('CRITICAL')" title="Click to filter Critical findings">
+                <span class="metric-label">Critical</span>
+                <span class="metric-num" id="crit-count">{{.CritCount}}</span>
+                <span class="metric-hint">Click to filter</span>
+            </button>
+            <button type="button" class="metric-card card-high" id="metric-high" aria-pressed="false" onclick="toggleSeverityCard('HIGH')" title="Click to filter High findings">
+                <span class="metric-label">High</span>
+                <span class="metric-num" id="high-count">{{.HighCount}}</span>
+                <span class="metric-hint">Click to filter</span>
+            </button>
+            <button type="button" class="metric-card card-med" id="metric-med" aria-pressed="false" onclick="toggleSeverityCard('MEDIUM')" title="Click to filter Medium findings">
+                <span class="metric-label">Medium</span>
+                <span class="metric-num" id="med-count">{{.MedCount}}</span>
+                <span class="metric-hint">Click to filter</span>
+            </button>
+            <button type="button" class="metric-card card-low" id="metric-low" aria-pressed="false" onclick="toggleSeverityCard('LOW')" title="Click to filter Low findings">
+                <span class="metric-label">Low</span>
+                <span class="metric-num" id="low-count">{{.LowCount}}</span>
+                <span class="metric-hint">Click to filter</span>
+            </button>
+            <button type="button" class="metric-card card-info" id="metric-info" aria-pressed="false" onclick="toggleSeverityCard('INFO')" title="Click to filter Info findings">
+                <span class="metric-label">Info</span>
+                <span class="metric-num" id="info-count">{{.InfoCount}}</span>
+                <span class="metric-hint">Click to filter</span>
+            </button>
         </section>
 
         <div class="severity-distribution" title="Severity distribution across all findings">
-            {{if gt .CritCount 0}}<div class="sev-seg-crit" style="width: {{printf "%.2f" .CritPct}}%"></div>{{end}}
-            {{if gt .HighCount 0}}<div class="sev-seg-high" style="width: {{printf "%.2f" .HighPct}}%"></div>{{end}}
-            {{if gt .MedCount 0}}<div class="sev-seg-med" style="width: {{printf "%.2f" .MedPct}}%"></div>{{end}}
-            {{if gt .LowCount 0}}<div class="sev-seg-low" style="width: {{printf "%.2f" .LowPct}}%"></div>{{end}}
-            {{if gt .InfoCount 0}}<div class="sev-seg-info" style="width: {{printf "%.2f" .InfoPct}}%"></div>{{end}}
+            {{- if gt .CritCount 0}}
+            <div class="sev-seg-crit"></div>
+            {{- end}}
+            {{- if gt .HighCount 0}}
+            <div class="sev-seg-high"></div>
+            {{- end}}
+            {{- if gt .MedCount 0}}
+            <div class="sev-seg-med"></div>
+            {{- end}}
+            {{- if gt .LowCount 0}}
+            <div class="sev-seg-low"></div>
+            {{- end}}
+            {{- if gt .InfoCount 0}}
+            <div class="sev-seg-info"></div>
+            {{- end}}
         </div>
 
-        {{if gt .TotalCount 0}}
-        <!-- Collapsible Triage Breakdown Panels -->
-        <details class="triage-overview" open>
+        {{- if gt .TotalCount 0}}
+        {{- /* Collapsible Triage Breakdown Panels */}}
+        <details class="triage-overview" id="triageOverview" open>
             <summary>
                 <span class="triage-summary-title">
                     <span>Scope &amp; Triage Breakdown</span>
@@ -2324,84 +2424,84 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 <span class="triage-summary-hint">Toggle Overview</span>
             </summary>
             <div class="triage-grid">
-                <!-- Panel 1: Audited Files / Sources -->
+                {{- /* Panel 1: Audited Files / Sources */}}
                 <div class="triage-panel">
                     <div class="triage-panel-header">
                         <span>Audited Files / Sources ({{.AuditedFilesCount}})</span>
                         <span>By Risk</span>
                     </div>
                     <div class="triage-list">
-                        {{range .FileSummaries}}
-                        <button type="button" class="triage-row" data-facet-file="{{.File}}" onclick="toggleFileFilter(this.getAttribute('data-facet-file'))" title="{{.File}}">
+                        {{- range .FileSummaries}}
+                        <button type="button" class="triage-row" data-facet-file="{{.File}}" title="{{.File}}">
                             <span class="triage-row-name">{{.File}}</span>
                             <span class="triage-row-badges">
-                                {{if gt .Crit 0}}<span class="mini-sev badge-crit">{{.Crit}} CRIT</span>{{end}}
-                                {{if gt .High 0}}<span class="mini-sev badge-high">{{.High}} HIGH</span>{{end}}
-                                {{if gt .Med 0}}<span class="mini-sev badge-med">{{.Med}} MED</span>{{end}}
-                                {{if gt .Low 0}}<span class="mini-sev badge-low">{{.Low}} LOW</span>{{end}}
+                                {{- if gt .Crit 0}}<span class="mini-sev badge-crit">{{.Crit}} CRIT</span>{{end -}}
+                                {{- if gt .High 0}}<span class="mini-sev badge-high">{{.High}} HIGH</span>{{end -}}
+                                {{- if gt .Med 0}}<span class="mini-sev badge-med">{{.Med}} MED</span>{{end -}}
+                                {{- if gt .Low 0}}<span class="mini-sev badge-low">{{.Low}} LOW</span>{{end -}}
                                 <span class="mini-total">({{.Total}})</span>
                             </span>
                         </button>
-                        {{end}}
+                        {{- end}}
                     </div>
                 </div>
 
-                <!-- Panel 2: Top Affected Principals -->
+                {{- /* Panel 2: Top Affected Principals */}}
                 <div class="triage-panel">
                     <div class="triage-panel-header">
                         <span>Principals / Users ({{.PrincipalsCount}})</span>
                         <span>By Risk</span>
                     </div>
                     <div class="triage-list">
-                        {{range .PrincipalSummaries}}
-                        <button type="button" class="triage-row" data-facet-principal="{{.Name}}" onclick="togglePrincipalFilter(this.getAttribute('data-facet-principal'))" title="{{.Name}}">
+                        {{- range .PrincipalSummaries}}
+                        <button type="button" class="triage-row" data-facet-principal="{{.Name}}" title="{{.Name}}">
                             <span class="triage-row-name">{{.Name}}</span>
                             <span class="triage-row-badges">
-                                {{if gt .Crit 0}}<span class="mini-sev badge-crit">{{.Crit}} CRIT</span>{{end}}
-                                {{if gt .High 0}}<span class="mini-sev badge-high">{{.High}} HIGH</span>{{end}}
-                                {{if gt .Med 0}}<span class="mini-sev badge-med">{{.Med}} MED</span>{{end}}
-                                {{if gt .Low 0}}<span class="mini-sev badge-low">{{.Low}} LOW</span>{{end}}
+                                {{- if gt .Crit 0}}<span class="mini-sev badge-crit">{{.Crit}} CRIT</span>{{end -}}
+                                {{- if gt .High 0}}<span class="mini-sev badge-high">{{.High}} HIGH</span>{{end -}}
+                                {{- if gt .Med 0}}<span class="mini-sev badge-med">{{.Med}} MED</span>{{end -}}
+                                {{- if gt .Low 0}}<span class="mini-sev badge-low">{{.Low}} LOW</span>{{end -}}
                                 <span class="mini-total">({{.Total}})</span>
                             </span>
                         </button>
-                        {{end}}
+                        {{- end}}
                     </div>
                 </div>
 
-                <!-- Panel 3: Top Triggered Rules & Compliance -->
+                {{- /* Panel 3: Top Triggered Rules & Compliance */}}
                 <div class="triage-panel">
                     <div class="triage-panel-header">
                         <span>Triggered Rules ({{.DistinctRulesCount}})</span>
                         <span>Occurrences</span>
                     </div>
                     <div class="triage-list">
-                        {{range .RuleSummaries}}
-                        <button type="button" class="triage-row" data-facet-rule="{{.ID}}" onclick="toggleRuleFilter(this.getAttribute('data-facet-rule'))" title="{{.ID}} - {{.Title}}">
+                        {{- range .RuleSummaries}}
+                        <button type="button" class="triage-row" data-facet-rule="{{.ID}}" title="{{.ID}} - {{.Title}}">
                             <span class="triage-row-name">{{.ID}}: {{.Title}}</span>
                             <span class="triage-row-badges">
                                 <span class="mini-sev {{.BadgeClass}}">{{.Severity}}</span>
                                 <span class="mini-total">&times;{{.Count}}</span>
                             </span>
                         </button>
-                        {{end}}
+                        {{- end}}
                     </div>
-                    {{if .ComplianceSummaries}}
-                    <div class="triage-panel-header" style="margin-top: 0.25rem;">
+                    {{- if .ComplianceSummaries}}
+                    <div class="triage-panel-header triage-panel-header-spaced">
                         <span>Compliance Frameworks</span>
                     </div>
                     <div class="compliance-tags">
-                        {{range .ComplianceSummaries}}
-                        <span class="compliance-badge" data-facet-comp="{{.Tag}}" onclick="toggleComplianceFilter(this.getAttribute('data-facet-comp'))">{{.Tag}} ({{.Count}})</span>
-                        {{end}}
+                        {{- range .ComplianceSummaries}}
+                        <button type="button" class="compliance-badge" data-facet-comp="{{.Tag}}">{{.Tag}} ({{.Count}})</button>
+                        {{- end}}
                     </div>
-                    {{end}}
+                    {{- end}}
                 </div>
             </div>
         </details>
-        {{end}}
+        {{- end}}
 
-        <!-- Sticky Interactive Filter, Pivot & Density Controls -->
-        <section class="controls-panel">
+        {{- /* Sticky Interactive Filter, Pivot & Density Controls */}}
+        <section class="controls-panel" aria-label="Filter and grouping controls">
             <div class="toolbar-top-row">
                 <div class="search-bar">
                     <input type="text" class="search-input" id="searchInput" aria-label="Search audit findings" placeholder="Search by ID, title, command, user, host, file path, compliance..." oninput="filterFindings()">
@@ -2415,62 +2515,62 @@ const htmlTemplateStr = `<!DOCTYPE html>
                         <span>Source:</span>
                         <select class="toolbar-select" id="fileFilterSelect" onchange="setFileFilter(this.value)">
                             <option value="ALL">All Sources ({{.AuditedFilesCount}})</option>
-                            {{range .FileSummaries}}
+                            {{- range .FileSummaries}}
                             <option value="{{.File}}">{{.File}} ({{.Total}})</option>
-                            {{end}}
+                            {{- end}}
                         </select>
                     </label>
                     <label class="toolbar-select-group">
                         <span>Principal:</span>
                         <select class="toolbar-select" id="principalFilterSelect" onchange="setPrincipalFilter(this.value)">
                             <option value="ALL">All Principals ({{.PrincipalsCount}})</option>
-                            {{range .PrincipalSummaries}}
+                            {{- range .PrincipalSummaries}}
                             <option value="{{.Name}}">{{.Name}} ({{.Total}})</option>
-                            {{end}}
+                            {{- end}}
                         </select>
                     </label>
                     <label class="toolbar-select-group">
                         <span>Group By:</span>
                         <select class="toolbar-select" id="groupBySelect" onchange="setGroupBy(this.value)">
-                            <option value="NONE" {{if eq .DefaultGroupBy "NONE"}}selected{{end}}>No Grouping (Severity Order)</option>
-                            <option value="FILE" {{if eq .DefaultGroupBy "FILE"}}selected{{end}}>Source File ({{.AuditedFilesCount}})</option>
-                            <option value="RULE" {{if eq .DefaultGroupBy "RULE"}}selected{{end}}>Rule ID / Deduplicate ({{.DistinctRulesCount}})</option>
+                            <option value="NONE"{{if eq .DefaultGroupBy "NONE"}} selected{{end}}>No Grouping (Severity Order)</option>
+                            <option value="FILE"{{if eq .DefaultGroupBy "FILE"}} selected{{end}}>Source File ({{.AuditedFilesCount}})</option>
+                            <option value="RULE"{{if eq .DefaultGroupBy "RULE"}} selected{{end}}>Rule ID / Deduplicate ({{.DistinctRulesCount}})</option>
                             <option value="USER">User / Principal ({{.PrincipalsCount}})</option>
                             <option value="SEVERITY">Severity Level</option>
                         </select>
                     </label>
                     <div class="view-mode-group" role="group" aria-label="View density">
-                        <button type="button" class="view-mode-btn active" id="btn-view-detailed" onclick="setViewDensity('detailed')">Detailed</button>
-                        <button type="button" class="view-mode-btn" id="btn-view-compact" onclick="setViewDensity('compact')">Compact</button>
+                        <button type="button" class="view-mode-btn active" id="btn-view-detailed" aria-pressed="true" onclick="setViewDensity('detailed')">Detailed</button>
+                        <button type="button" class="view-mode-btn" id="btn-view-compact" aria-pressed="false" onclick="setViewDensity('compact')">Compact</button>
                     </div>
                 </div>
             </div>
 
             <div class="toolbar-filters-row">
                 <div class="filter-buttons">
-                    <button type="button" class="filter-btn active" id="btn-all" onclick="filterSeverity('ALL')">All Severities</button>
-                    <button type="button" class="filter-btn" id="btn-crit" onclick="filterSeverity('CRITICAL')">Critical ({{.CritCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-high" onclick="filterSeverity('HIGH')">High ({{.HighCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-med" onclick="filterSeverity('MEDIUM')">Medium ({{.MedCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-low" onclick="filterSeverity('LOW')">Low ({{.LowCount}})</button>
-                    <button type="button" class="filter-btn" id="btn-info" onclick="filterSeverity('INFO')">Info ({{.InfoCount}})</button>
+                    <button type="button" class="filter-btn active" id="btn-all" aria-pressed="true" onclick="filterSeverity('ALL')">All Severities</button>
+                    <button type="button" class="filter-btn" id="btn-crit" aria-pressed="false" onclick="filterSeverity('CRITICAL')">Critical ({{.CritCount}})</button>
+                    <button type="button" class="filter-btn" id="btn-high" aria-pressed="false" onclick="filterSeverity('HIGH')">High ({{.HighCount}})</button>
+                    <button type="button" class="filter-btn" id="btn-med" aria-pressed="false" onclick="filterSeverity('MEDIUM')">Medium ({{.MedCount}})</button>
+                    <button type="button" class="filter-btn" id="btn-low" aria-pressed="false" onclick="filterSeverity('LOW')">Low ({{.LowCount}})</button>
+                    <button type="button" class="filter-btn" id="btn-info" aria-pressed="false" onclick="filterSeverity('INFO')">Info ({{.InfoCount}})</button>
                 </div>
                 <div class="filter-buttons">
-                    <button type="button" class="filter-btn active" id="btn-cat-all" onclick="filterCategory('ALL')">All Domains</button>
+                    <button type="button" class="filter-btn active" id="btn-cat-all" aria-pressed="true" onclick="filterCategory('ALL')">All Domains</button>
                     <div class="policy-filter-group" id="policyFilterGroup" role="group" aria-label="Policy domain filters">
-                        <button type="button" class="filter-btn filter-btn-parent" id="btn-cat-policy" onclick="filterCategory('POLICY')" title="All sudoers policy findings (GTFObins + Commands + Defaults)">Policy ({{.PolicyCount}})</button>
+                        <button type="button" class="filter-btn filter-btn-parent" id="btn-cat-policy" aria-pressed="false" onclick="filterCategory('POLICY')" title="All sudoers policy findings (GTFObins + Commands + Defaults)">Policy ({{.PolicyCount}})</button>
                         <div class="policy-subfilters">
-                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-gtfo" onclick="filterCategory('GTFOBINS')">GTFObins ({{.GTFOCount}})</button>
-                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-cmd" onclick="filterCategory('COMMANDS')">Commands ({{.CmdCount}})</button>
-                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-def" onclick="filterCategory('DEFAULTS')">Defaults ({{.DefCount}})</button>
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-gtfo" aria-pressed="false" onclick="filterCategory('GTFOBINS')">GTFObins ({{.GTFOCount}})</button>
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-cmd" aria-pressed="false" onclick="filterCategory('COMMANDS')">Commands ({{.CmdCount}})</button>
+                            <button type="button" class="filter-btn filter-btn-sub" id="btn-dom-def" aria-pressed="false" onclick="filterCategory('DEFAULTS')">Defaults ({{.DefCount}})</button>
                         </div>
                     </div>
-                    <button type="button" class="filter-btn" id="btn-cat-system" onclick="filterCategory('SYSTEM')">System ({{.SystemCount}})</button>
+                    <button type="button" class="filter-btn" id="btn-cat-system" aria-pressed="false" onclick="filterCategory('SYSTEM')">System ({{.SystemCount}})</button>
                 </div>
             </div>
 
             <div class="toolbar-status-row">
-                <div>
+                <div role="status" aria-live="polite" aria-atomic="true">
                     Showing <strong id="visibleFindingsCount">{{.TotalCount}}</strong> of <strong id="totalFindingsInline">{{.TotalCount}}</strong> findings
                 </div>
                 <div class="active-filters-list" id="activeFiltersList"></div>
@@ -2478,144 +2578,145 @@ const htmlTemplateStr = `<!DOCTYPE html>
             </div>
         </section>
 
-        <!-- Findings Lists -->
-        <main class="findings-list" id="findingsContainer">
-            <!-- Render System Findings -->
-            {{range .SystemFindings}}
-            <article class="finding-card" id="{{.CardID}}" data-order="{{.Index}}" data-id="{{.ID}}" data-title="{{.Title}}" data-severity="{{.Severity}}" data-category="SYSTEM" data-domain="{{.Domain}}" data-file="{{.SourceFile}}" data-principal="{{.Principal}}" data-compliance="{{.ComplianceCSV}}" data-remediation="{{.CleanRemediation}}" data-remediation-code="{{.EffectiveRemediationCode}}" data-remediation-label="{{.RemediationCodeLabel}}" data-search="{{.SearchText}}">
-                <div class="finding-header" onclick="handleCardHeaderClick(event, this)">
+        {{- /* Findings Lists */}}
+        <div class="findings-list" id="findingsContainer">
+            {{- range .SystemFindings}}
+            <article class="finding-card" id="{{.CardID}}" data-order="{{.Index}}" data-id="{{.ID}}" data-severity="{{.Severity}}" data-category="SYSTEM" data-domain="{{.Domain}}" data-file="{{.SourceFile}}" data-principal="{{.Principal}}"{{if .ComplianceCSV}} data-compliance="{{.ComplianceCSV}}"{{end}}>
+                <div class="finding-header">
                     <div class="finding-title-sec">
                         <div class="finding-meta-top">
                             <span class="finding-id">{{.ID}}</span>
                             <span class="domain-badge">{{.DomainLabel}}</span>
-                            {{if .Location}}<span class="location-pill" data-loc-file="{{.SourceFile}}" onclick="event.stopPropagation(); toggleFileFilter(this.getAttribute('data-loc-file'))" title="Filter by source file">{{.Location}}</span>{{end}}
+                            {{- if .Location}}<button type="button" class="location-pill" data-action="filter-file" title="Filter by source file">{{.Location}}</button>{{end}}
                         </div>
                         <h2 class="finding-title">{{.Title}}</h2>
+                        {{- if .Context}}
                         <div class="compact-summary-pills">
-                            {{if .Context}}<span class="compact-pill">{{.Location}}</span>{{end}}
+                            <span class="compact-pill">{{.Location}}</span>
                         </div>
+                        {{- end}}
                     </div>
                     <div class="finding-header-right">
                         <span class="sev-badge {{.BadgeClass}}">{{.Severity}}</span>
-                        <button type="button" class="compact-toggle-btn" aria-expanded="true" onclick="event.stopPropagation(); toggleCompactCard(this.closest('.finding-card'))">Details</button>
+                        <button type="button" class="compact-toggle-btn" aria-expanded="true" data-action="toggle-compact">Details</button>
                     </div>
                 </div>
                 <div class="finding-expandable-body">
                     <div class="finding-details-grid">
                         <div class="finding-detail-item"><strong>Source:</strong> System Health Check</div>
-                        {{if .Context}}<div class="finding-detail-item"><strong>Target Path:</strong> <span class="clickable-meta" data-loc-file="{{.SourceFile}}" onclick="toggleFileFilter(this.getAttribute('data-loc-file'))">{{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</span></div>{{end}}
+                        {{- if .Context}}<div class="finding-detail-item"><strong>Target Path:</strong> <button type="button" class="clickable-meta" data-action="filter-file">{{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</button></div>{{end}}
                     </div>
-                    {{if .Compliance}}
+                    {{- if .Compliance}}
                     <div class="compliance-tags">
-                        {{range .Compliance}}<span class="compliance-badge" data-comp="{{.}}" onclick="toggleComplianceFilter(this.getAttribute('data-comp'))">{{.}}</span>{{end}}
+                        {{- range .Compliance}}<button type="button" class="compliance-badge" data-comp="{{.}}">{{.}}</button>{{end}}
                     </div>
-                    {{end}}
+                    {{- end}}
                     <p class="finding-desc">{{.Description}}</p>
                     <div class="finding-remediation">
                         <div class="remediation-title">Remediation</div>
                         <div class="remediation-content">
-                            {{if .CleanRemediation}}<p>{{.CleanRemediation}}</p>{{end}}
-                            {{if .EffectiveRemediationCode}}
+                            {{- if .CleanRemediation}}<p>{{.CleanRemediation}}</p>{{end}}
+                            {{- if .EffectiveRemediationCode}}
                             <div class="remediation-code-block">
                                 <div class="remediation-code-header">
                                     <span class="remediation-code-label">{{.RemediationCodeLabel}}</span>
-                                    <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                                    <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                                 </div>
                                 <pre tabindex="0"><code>{{.EffectiveRemediationCode}}</code></pre>
                             </div>
-                            {{end}}
+                            {{- end}}
                         </div>
                     </div>
-                    {{if .EffectiveExploitPoC}}
+                    {{- if .EffectiveExploitPoC}}
                     <div class="finding-exploit">
                         <div class="exploit-header">
                             <span class="exploit-title">Exploit / Verification Reference</span>
-                            <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                         </div>
                         <pre tabindex="0"><code>{{.EffectiveExploitPoC}}</code></pre>
                     </div>
-                    {{end}}
+                    {{- end}}
                 </div>
             </article>
-            {{end}}
-
-            <!-- Render Policy Findings -->
-            {{range .PolicyFindings}}
-            <article class="finding-card" id="{{.CardID}}" data-order="{{.Index}}" data-id="{{.ID}}" data-title="{{.Title}}" data-severity="{{.Severity}}" data-category="POLICY" data-domain="{{.Domain}}" data-file="{{.SourceFile}}" data-principal="{{.Principal}}" data-compliance="{{.ComplianceCSV}}" data-remediation="{{.CleanRemediation}}" data-remediation-code="{{.EffectiveRemediationCode}}" data-remediation-label="{{.RemediationCodeLabel}}" data-search="{{.SearchText}}">
-                <div class="finding-header" onclick="handleCardHeaderClick(event, this)">
+            {{- end}}
+            {{- range .PolicyFindings}}
+            <article class="finding-card" id="{{.CardID}}" data-order="{{.Index}}" data-id="{{.ID}}" data-severity="{{.Severity}}" data-category="POLICY" data-domain="{{.Domain}}" data-file="{{.SourceFile}}" data-principal="{{.Principal}}"{{if .ComplianceCSV}} data-compliance="{{.ComplianceCSV}}"{{end}}>
+                <div class="finding-header">
                     <div class="finding-title-sec">
                         <div class="finding-meta-top">
                             <span class="finding-id">{{.ID}}</span>
                             <span class="domain-badge">{{.DomainLabel}}</span>
-                            {{if .Location}}<span class="location-pill" data-loc-file="{{.SourceFile}}" onclick="event.stopPropagation(); toggleFileFilter(this.getAttribute('data-loc-file'))" title="Filter by source file">{{.Location}}</span>{{end}}
+                            {{- if .Location}}<button type="button" class="location-pill" data-action="filter-file" title="Filter by source file">{{.Location}}</button>{{end}}
                         </div>
                         <h2 class="finding-title">{{.Title}}</h2>
+                        {{- if or .User .Command}}
                         <div class="compact-summary-pills">
-                            {{if .User}}<span class="compact-pill" title="User/Group">{{.User}}</span>{{end}}
-                            {{if .Command}}<span class="compact-pill" title="Command">{{.Command}}</span>{{end}}
+                            {{- if .User}}<span class="compact-pill" title="User/Group">{{.User}}</span>{{end}}
+                            {{- if .Command}}<span class="compact-pill" title="Command">{{.Command}}</span>{{end}}
                         </div>
+                        {{- end}}
                     </div>
                     <div class="finding-header-right">
                         <span class="sev-badge {{.BadgeClass}}">{{.Severity}}</span>
-                        <button type="button" class="compact-toggle-btn" aria-expanded="true" onclick="event.stopPropagation(); toggleCompactCard(this.closest('.finding-card'))">Details</button>
+                        <button type="button" class="compact-toggle-btn" aria-expanded="true" data-action="toggle-compact">Details</button>
                     </div>
                 </div>
                 <div class="finding-expandable-body">
-                    {{if .RulePreview}}
+                    {{- if .RulePreview}}
                     <div class="rule-preview-bar">
                         <code class="rule-preview-code">{{.RulePreview}}</code>
-                        <button type="button" class="copy-btn" onclick="copySiblingCode(this)">Copy Rule</button>
+                        <button type="button" class="copy-btn" data-action="copy-sibling">Copy Rule</button>
                     </div>
-                    {{end}}
+                    {{- end}}
                     <div class="finding-details-grid">
                         <div class="finding-detail-item"><strong>Source:</strong> Sudoers Policy</div>
-                        {{if .User}}<div class="finding-detail-item"><strong>User/Group:</strong> <span class="clickable-meta" data-user="{{.Principal}}" onclick="togglePrincipalFilter(this.getAttribute('data-user'))">{{.User}}</span></div>{{end}}
-                        {{if .Host}}<div class="finding-detail-item"><strong>Host:</strong> {{.Host}}</div>{{end}}
-                        {{if .Runas}}<div class="finding-detail-item"><strong>RunAs:</strong> {{.Runas}}</div>{{end}}
-                        {{if .Command}}<div class="finding-detail-item"><strong>Command:</strong> <code>{{.Command}}</code></div>{{end}}
-                        {{if .Context}}<div class="finding-detail-item"><strong>Location:</strong> <span class="clickable-meta" data-loc-file="{{.SourceFile}}" onclick="toggleFileFilter(this.getAttribute('data-loc-file'))">{{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</span></div>{{end}}
+                        {{- if .User}}<div class="finding-detail-item"><strong>User/Group:</strong> <button type="button" class="clickable-meta" data-action="filter-principal">{{.User}}</button></div>{{end}}
+                        {{- if .Host}}<div class="finding-detail-item"><strong>Host:</strong> {{.Host}}</div>{{end}}
+                        {{- if .Runas}}<div class="finding-detail-item"><strong>RunAs:</strong> {{.Runas}}</div>{{end}}
+                        {{- if .Command}}<div class="finding-detail-item"><strong>Command:</strong> <code>{{.Command}}</code></div>{{end}}
+                        {{- if .Context}}<div class="finding-detail-item"><strong>Location:</strong> <button type="button" class="clickable-meta" data-action="filter-file">{{.Context}}{{if gt .Line 0}}:{{.Line}}{{end}}</button></div>{{end}}
                     </div>
-                    {{if .Compliance}}
+                    {{- if .Compliance}}
                     <div class="compliance-tags">
-                        {{range .Compliance}}<span class="compliance-badge" data-comp="{{.}}" onclick="toggleComplianceFilter(this.getAttribute('data-comp'))">{{.}}</span>{{end}}
+                        {{- range .Compliance}}<button type="button" class="compliance-badge" data-comp="{{.}}">{{.}}</button>{{end}}
                     </div>
-                    {{end}}
+                    {{- end}}
                     <p class="finding-desc">{{.Description}}</p>
                     <div class="finding-remediation">
                         <div class="remediation-title">Remediation</div>
                         <div class="remediation-content">
-                            {{if .CleanRemediation}}<p>{{.CleanRemediation}}</p>{{end}}
-                            {{if .EffectiveRemediationCode}}
+                            {{- if .CleanRemediation}}<p>{{.CleanRemediation}}</p>{{end}}
+                            {{- if .EffectiveRemediationCode}}
                             <div class="remediation-code-block">
                                 <div class="remediation-code-header">
                                     <span class="remediation-code-label">{{.RemediationCodeLabel}}</span>
-                                    <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                                    <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                                 </div>
                                 <pre tabindex="0"><code>{{.EffectiveRemediationCode}}</code></pre>
                             </div>
-                            {{end}}
+                            {{- end}}
                         </div>
                     </div>
-                    {{if .EffectiveExploitPoC}}
+                    {{- if .EffectiveExploitPoC}}
                     <div class="finding-exploit">
                         <div class="exploit-header">
                             <span class="exploit-title">Exploit / Verification Reference</span>
-                            <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                            <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                         </div>
                         <pre tabindex="0"><code>{{.EffectiveExploitPoC}}</code></pre>
                     </div>
-                    {{end}}
+                    {{- end}}
                 </div>
             </article>
-            {{end}}
+            {{- end}}
 
-            <div class="no-findings" id="noFindingsMsg" style="{{if eq .TotalCount 0}}display: block;{{else}}display: none;{{end}}">
+            <div class="no-findings" id="noFindingsMsg"{{if gt .TotalCount 0}} hidden{{end}}>
                 <h2>{{if eq .TotalCount 0}}No security findings detected.{{else}}No findings match the selected filters.{{end}}</h2>
             </div>
-        </main>
+        </div>
         </div>
 
-        <!-- TAB PANEL 2: REFERENCE FRAMEWORKS & VERBATIM REQUIREMENTS -->
+        {{- /* TAB PANEL 2: REFERENCE FRAMEWORKS & VERBATIM REQUIREMENTS */}}
         <div id="panel-frameworks" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-frameworks" hidden>
             <div class="frameworks-intro-banner">
                 <h2>Reference Security Frameworks &amp; Verbatim Requirements</h2>
@@ -2633,33 +2734,33 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 </div>
                 <div class="toolbar-filters-row">
                     <div class="filter-buttons">
-                        <button type="button" class="filter-btn active" id="btn-fw-all" onclick="setFrameworkFilter('ALL')">All Frameworks ({{.TotalRequirements}})</button>
-                        {{range .FrameworkGroups}}
-                        <button type="button" class="filter-btn" id="btn-fw-{{.ID}}" onclick="setFrameworkFilter('{{.ID}}')">{{.ShortName}} ({{.TotalReqs}})</button>
-                        {{end}}
+                        <button type="button" class="filter-btn active" id="btn-fw-all" aria-pressed="true" onclick="setFrameworkFilter('ALL')">All Frameworks ({{.TotalRequirements}})</button>
+                        {{- range .FrameworkGroups}}
+                        <button type="button" class="filter-btn" id="btn-fw-{{.ID}}" aria-pressed="false" onclick="setFrameworkFilter('{{.ID}}')">{{.ShortName}} ({{.TotalReqs}})</button>
+                        {{- end}}
                     </div>
                     <div class="filter-buttons">
-                        <button type="button" class="filter-btn" id="btn-fw-triggered" onclick="toggleTriggeredReqsOnly()">Triggered in This Scan Only ({{.TriggeredReqsCount}})</button>
+                        <button type="button" class="filter-btn" id="btn-fw-triggered" aria-pressed="false" onclick="toggleTriggeredReqsOnly()">Triggered in This Scan Only ({{.TriggeredReqsCount}})</button>
                     </div>
                 </div>
             </div>
 
             <div id="frameworksCatalogContainer">
-                {{range .FrameworkGroups}}
+                {{- range .FrameworkGroups}}
                 <details class="framework-group-card" data-fw-group="{{.ID}}" open>
                     <summary class="framework-group-header">
-                        <div class="group-header-left">
+                        <span class="group-header-left">
                             <span class="group-chevron">&#9654;</span>
                             <span class="group-title">{{.FullName}}</span>
                             <span class="framework-level-pill">{{.VersionInfo}}</span>
-                        </div>
-                        <div class="triage-row-badges">
-                            {{if gt .TotalFindings 0}}
+                        </span>
+                        <span class="triage-row-badges">
+                            {{- if gt .TotalFindings 0}}
                             <span class="mini-sev badge-high">{{.TriggeredReqs}}/{{.TotalReqs}} Triggered ({{.TotalFindings}} findings)</span>
-                            {{else}}
+                            {{- else}}
                             <span class="mini-sev badge-compliant">{{.TotalReqs}} Requirements — 0 Violations</span>
-                            {{end}}
-                        </div>
+                            {{- end}}
+                        </span>
                     </summary>
                     <div class="framework-group-meta">
                         <p>{{.Summary}}</p>
@@ -2669,8 +2770,8 @@ const htmlTemplateStr = `<!DOCTYPE html>
                         </div>
                     </div>
                     <div class="framework-reqs-body">
-                        {{range .Requirements}}
-                        <article class="framework-req-card" id="req-{{.ID}}" data-fw-id="{{.FrameworkID}}" data-req-triggered="{{if gt .ViolationCount 0}}true{{else}}false{{end}}" data-req-search="{{.SearchText}}">
+                        {{- range .Requirements}}
+                        <article class="framework-req-card" id="req-{{.ID}}" data-fw-id="{{.FrameworkID}}" data-req-triggered="{{if gt .ViolationCount 0}}true{{else}}false{{end}}">
                             <div class="framework-req-header">
                                 <div class="framework-req-title-wrap">
                                     <div class="finding-meta-top">
@@ -2680,20 +2781,20 @@ const htmlTemplateStr = `<!DOCTYPE html>
                                     <h3 class="finding-title">{{.Title}}</h3>
                                 </div>
                                 <div class="finding-header-right">
-                                    {{if gt .ViolationCount 0}}
+                                    {{- if gt .ViolationCount 0}}
                                     <span class="sev-badge {{.BadgeClass}}">{{.ViolationCount}} Violation{{if gt .ViolationCount 1}}s{{end}} ({{.HighestSeverity}})</span>
-                                    {{else}}
+                                    {{- else}}
                                     <span class="sev-badge badge-compliant">0 Violations — Compliant</span>
-                                    {{end}}
+                                    {{- end}}
                                 </div>
                             </div>
 
                             <div class="verbatim-box">
                                 <span class="verbatim-label">Verbatim Standard Requirement</span>
                                 <blockquote class="verbatim-quote" cite="{{.CitationURL}}">{{.VerbatimQuote}}</blockquote>
-                                {{if .VerbatimQuoteFR}}
+                                {{- if .VerbatimQuoteFR}}
                                 <blockquote class="verbatim-quote-fr" lang="fr" cite="{{.CitationURL}}"><strong>Texte original (ANSSI BP-028) :</strong> {{.VerbatimQuoteFR}}</blockquote>
-                                {{end}}
+                                {{- end}}
                             </div>
 
                             <p class="finding-desc"><strong>Security Rationale:</strong> {{.Rationale}}</p>
@@ -2701,37 +2802,37 @@ const htmlTemplateStr = `<!DOCTYPE html>
                             <div class="finding-remediation">
                                 <div class="remediation-code-header">
                                     <span class="remediation-code-label">Required Sudoers Directives &amp; Controls</span>
-                                    <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                                    <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                                 </div>
                                 <pre tabindex="0"><code>{{.DirectivesCode}}</code></pre>
                             </div>
 
-                            <div class="req-CrossLinks">
+                            <div class="req-cross-links">
                                 <div class="req-rule-pills">
-                                    <strong style="font-size: 0.76rem; color: var(--text-muted); margin-right: 0.25rem;">Mapped Audit Rules:</strong>
-                                    {{range .RuleIDs}}
-                                    <button type="button" class="compliance-badge" onclick="jumpToAuditReportByRule('{{.}}')" title="Filter Audit Report by rule {{.}}">{{.}}</button>
-                                    {{end}}
+                                    <strong class="req-pills-label">Mapped Audit Rules:</strong>
+                                    {{- range .RuleIDs}}
+                                    <button type="button" class="compliance-badge" data-jump-rule="{{.}}" title="Filter Audit Report by rule {{.}}">{{.}}</button>
+                                    {{- end}}
                                 </div>
                                 <div class="req-action-links">
-                                    {{if gt .ViolationCount 0}}
-                                    <button type="button" class="jump-btn" data-req-code="{{.Code}}" data-req-rules="{{range $i, $r := .RuleIDs}}{{if $i}},{{end}}{{$r}}{{end}}" data-req-comps="{{range $i, $c := .ComplianceTags}}{{if $i}},{{end}}{{$c}}{{end}}" onclick="jumpToAuditReportByRequirement(this)">View Triggered Findings ({{.ViolationCount}})</button>
-                                    {{end}}
-                                    <button type="button" class="jump-btn" onclick="jumpToTemplateSection('{{.TemplateAnchor}}')">View in Hardened Template</button>
+                                    {{- if gt .ViolationCount 0}}
+                                    <button type="button" class="jump-btn" data-req-code="{{.Code}}" data-req-rules="{{range $i, $r := .RuleIDs}}{{if $i}},{{end}}{{$r}}{{end}}" data-req-comps="{{range $i, $c := .ComplianceTags}}{{if $i}},{{end}}{{$c}}{{end}}">View Triggered Findings ({{.ViolationCount}})</button>
+                                    {{- end}}
+                                    <button type="button" class="jump-btn" data-jump-tpl="{{.TemplateAnchor}}">View in Hardened Template</button>
                                 </div>
                             </div>
                         </article>
-                        {{end}}
+                        {{- end}}
                     </div>
                 </details>
-                {{end}}
-                <div class="no-findings" id="noFrameworkReqsMsg" style="display: none;">
+                {{- end}}
+                <div class="no-findings" id="noFrameworkReqsMsg" hidden>
                     <h2>No framework requirements match the selected filter.</h2>
                 </div>
             </div>
         </div>
 
-        <!-- TAB PANEL 3: HARDENED REFERENCE TEMPLATE -->
+        {{- /* TAB PANEL 3: HARDENED REFERENCE TEMPLATE */}}
         <div id="panel-template" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-template" hidden>
             <div class="template-intro-banner">
                 <h2>Hardened Reference Sudoers Baseline &amp; Implementation Patterns</h2>
@@ -2739,13 +2840,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             </div>
 
             <div class="template-quick-nav">
-                {{range .TemplateSections}}
-                <button type="button" class="jump-btn" onclick="scrollToElementId('{{.ID}}')">{{.Title}}</button>
-                {{end}}
-                <button type="button" class="jump-btn" onclick="scrollToElementId('tpl-traceability-matrix')">5. Rule-to-Directive Traceability Matrix</button>
+                {{- range .TemplateSections}}
+                <button type="button" class="jump-btn" data-scroll-to="{{.ID}}">{{.Title}}</button>
+                {{- end}}
+                <button type="button" class="jump-btn" data-scroll-to="tpl-traceability-matrix">5. Rule-to-Directive Traceability Matrix</button>
             </div>
 
-            {{range .TemplateSections}}
+            {{- range .TemplateSections}}
             <article class="template-section-card" id="{{.ID}}">
                 <div class="template-section-header">
                     <div class="framework-req-title-wrap">
@@ -2755,31 +2856,31 @@ const htmlTemplateStr = `<!DOCTYPE html>
                         </div>
                         <h3 class="finding-title">{{.Title}}</h3>
                     </div>
-                    <button type="button" class="action-btn" onclick="copySectionPre(this)">Copy Template</button>
+                    <button type="button" class="action-btn" data-action="copy-section-pre">Copy Template</button>
                 </div>
                 <p class="finding-desc">{{.Description}}</p>
-                {{if .Highlights}}
+                {{- if .Highlights}}
                 <ul class="template-highlights">
-                    {{range .Highlights}}
+                    {{- range .Highlights}}
                     <li>{{.}}</li>
-                    {{end}}
+                    {{- end}}
                 </ul>
-                {{end}}
+                {{- end}}
                 <div class="finding-remediation">
                     <div class="remediation-code-header">
                         <span class="remediation-code-label">{{.FilePath}}</span>
-                        <button type="button" class="copy-btn" onclick="copyCodeBlock(this)">Copy</button>
+                        <button type="button" class="copy-btn" data-action="copy-code">Copy</button>
                     </div>
                     <pre tabindex="0"><code>{{.Code}}</code></pre>
                 </div>
                 <div class="req-rule-pills">
-                    <strong style="font-size: 0.76rem; color: var(--text-muted); margin-right: 0.25rem;">Satisfies Rules:</strong>
-                    {{range .RuleIDs}}
-                    <span class="finding-id">{{.}}</span>
-                    {{end}}
+                    <strong class="req-pills-label">Satisfies Rules:</strong>
+                    {{- range .RuleIDs}}
+                    <button type="button" class="finding-id" data-jump-rule="{{.}}" title="Filter Audit Report by rule {{.}}">{{.}}</button>
+                    {{- end}}
                 </div>
             </article>
-            {{end}}
+            {{- end}}
 
             <div class="traceability-card" id="tpl-traceability-matrix">
                 <table class="traceability-table">
@@ -2795,24 +2896,25 @@ const htmlTemplateStr = `<!DOCTYPE html>
                         </tr>
                     </thead>
                     <tbody>
-                        {{range .TraceabilityRows}}
+                        {{- range .TraceabilityRows}}
                         <tr>
-                            <td><span class="finding-id" style="cursor: pointer;" onclick="scrollToElementId('{{.SectionID}}')" title="Jump to template section">{{.RuleID}}</span></td>
+                            <td><button type="button" class="finding-id" data-scroll-to="{{.SectionID}}" title="Jump to template section">{{.RuleID}}</button></td>
                             <td>{{.Domain}}</td>
                             <td><span class="mini-sev {{.BadgeClass}}">{{.Severity}}</span></td>
                             <td>{{.Title}}</td>
                             <td>
                                 <div class="compliance-tags">
-                                    {{range .Frameworks}}<span class="compliance-badge" onclick="jumpToFrameworkRequirement('{{.}}')">{{.}}</span>{{end}}
+                                    {{- range .Frameworks}}<button type="button" class="compliance-badge" data-jump-fw="{{.}}">{{.}}</button>{{end}}
                                 </div>
                             </td>
                             <td><code>{{.Directive}}</code></td>
                         </tr>
-                        {{end}}
+                        {{- end}}
                     </tbody>
                 </table>
             </div>
         </div>
+        </main>
     </div>
 
     <script>
@@ -2836,14 +2938,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
             'MEDIUM': 2,
             'LOW': 3,
             'INFO': 4
-        };
-
-        const badgeClassMap = {
-            'CRITICAL': 'badge-crit',
-            'HIGH': 'badge-high',
-            'MEDIUM': 'badge-med',
-            'LOW': 'badge-low',
-            'INFO': 'badge-info'
         };
 
         function normalizeComplianceJS(tag) {
@@ -2901,10 +2995,16 @@ const htmlTemplateStr = `<!DOCTYPE html>
         function setFrameworkFilter(fwId) {
             currentFrameworkFilter = fwId || 'ALL';
             const allBtn = document.getElementById('btn-fw-all');
-            if (allBtn) allBtn.classList.toggle('active', currentFrameworkFilter === 'ALL');
+            if (allBtn) {
+                const isAll = (currentFrameworkFilter === 'ALL');
+                allBtn.classList.toggle('active', isAll);
+                allBtn.setAttribute('aria-pressed', isAll ? 'true' : 'false');
+            }
             document.querySelectorAll('[id^="btn-fw-"]').forEach(btn => {
                 if (btn.id === 'btn-fw-all' || btn.id === 'btn-fw-triggered') return;
-                btn.classList.toggle('active', btn.id === 'btn-fw-' + currentFrameworkFilter);
+                const active = (btn.id === 'btn-fw-' + currentFrameworkFilter);
+                btn.classList.toggle('active', active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
             });
             filterFrameworkCatalog();
         }
@@ -2912,7 +3012,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
         function toggleTriggeredReqsOnly() {
             triggeredReqsOnly = !triggeredReqsOnly;
             const btn = document.getElementById('btn-fw-triggered');
-            if (btn) btn.classList.toggle('active', triggeredReqsOnly);
+            if (btn) {
+                btn.classList.toggle('active', triggeredReqsOnly);
+                btn.setAttribute('aria-pressed', triggeredReqsOnly ? 'true' : 'false');
+            }
             filterFrameworkCatalog();
         }
 
@@ -2938,8 +3041,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
 
                 groupEl.querySelectorAll('.framework-req-card').forEach(reqEl => {
                     const isTriggered = reqEl.getAttribute('data-req-triggered') === 'true';
-                    const searchBlob = reqEl.getAttribute('data-req-search') || reqEl.innerText.toLowerCase();
-                    const matchesQuery = (query === '' || searchBlob.includes(query));
+                    if (!reqEl._searchText) {
+                        reqEl._searchText = (reqEl.textContent || '').toLowerCase();
+                    }
+                    const matchesQuery = (query === '' || reqEl._searchText.includes(query));
                     const matchesTriggered = (!triggeredReqsOnly || isTriggered);
 
                     if (groupMatchesFw && matchesQuery && matchesTriggered) {
@@ -2956,7 +3061,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
 
             const noFwMsg = document.getElementById('noFrameworkReqsMsg');
             if (noFwMsg) {
-                noFwMsg.style.display = totalVisibleReqs === 0 ? 'block' : 'none';
+                noFwMsg.hidden = totalVisibleReqs !== 0;
             }
         }
 
@@ -2966,18 +3071,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
             currentRule = ruleId;
             document.querySelectorAll('[data-facet-rule]').forEach(el => {
                 el.classList.toggle('active-facet', el.getAttribute('data-facet-rule') === currentRule);
-            });
-            filterFindings();
-            const container = document.getElementById('findingsContainer');
-            if (container) container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-
-        function jumpToAuditReportByCompliance(compTag) {
-            switchViewTab('report', false);
-            resetAllFilters();
-            currentCompliance = normalizeComplianceJS(compTag);
-            document.querySelectorAll('[data-facet-comp]').forEach(el => {
-                el.classList.toggle('active-facet', normalizeComplianceJS(el.getAttribute('data-facet-comp')) === currentCompliance);
             });
             filterFindings();
             const container = document.getElementById('findingsContainer');
@@ -3040,25 +3133,133 @@ const htmlTemplateStr = `<!DOCTYPE html>
             } catch (e) {}
         }
 
-        (function restoreSavedTheme() {
-            try {
-                const saved = localStorage.getItem('sudo-check-theme');
-                if (saved === 'light' || saved === 'dark') {
-                    document.documentElement.setAttribute('data-theme', saved);
-                }
-            } catch (e) {}
-        })();
-
         window.onload = function() {
             allCards = Array.from(document.querySelectorAll('.finding-card'));
-            calculateStats();
+            setupEventDelegation();
             setupKeyboardShortcuts();
             setupBeforeMatchDelegation();
             if (currentGroupBy !== 'NONE') {
                 rebuildGrouping();
+                filterFindings();
             }
-            filterFindings();
         };
+
+        function setupEventDelegation() {
+            const triageEl = document.getElementById('triageOverview');
+            if (triageEl) {
+                triageEl.addEventListener('click', function(e) {
+                    const fileBtn = e.target.closest('[data-facet-file]');
+                    if (fileBtn) {
+                        toggleFileFilter(fileBtn.getAttribute('data-facet-file'));
+                        return;
+                    }
+                    const prinBtn = e.target.closest('[data-facet-principal]');
+                    if (prinBtn) {
+                        togglePrincipalFilter(prinBtn.getAttribute('data-facet-principal'));
+                        return;
+                    }
+                    const ruleBtn = e.target.closest('[data-facet-rule]');
+                    if (ruleBtn) {
+                        toggleRuleFilter(ruleBtn.getAttribute('data-facet-rule'));
+                        return;
+                    }
+                    const compBtn = e.target.closest('[data-facet-comp]');
+                    if (compBtn) {
+                        toggleComplianceFilter(compBtn.getAttribute('data-facet-comp'));
+                    }
+                });
+            }
+
+            const container = document.getElementById('findingsContainer');
+            if (container) {
+                container.addEventListener('click', function(e) {
+                    const compBtn = e.target.closest('[data-comp]');
+                    if (compBtn) {
+                        toggleComplianceFilter(compBtn.getAttribute('data-comp'));
+                        return;
+                    }
+                    const actionBtn = e.target.closest('[data-action]');
+                    if (actionBtn) {
+                        const action = actionBtn.getAttribute('data-action');
+                        const card = actionBtn.closest('.finding-card');
+                        if (action === 'filter-file' && card) {
+                            e.stopPropagation();
+                            toggleFileFilter(card.getAttribute('data-file'));
+                        } else if (action === 'filter-principal' && card) {
+                            togglePrincipalFilter(card.getAttribute('data-principal'));
+                        } else if (action === 'toggle-compact' && card) {
+                            e.stopPropagation();
+                            toggleCompactCard(card);
+                        } else if (action === 'copy-code') {
+                            copyCodeBlock(actionBtn);
+                        } else if (action === 'copy-sibling') {
+                            copySiblingCode(actionBtn);
+                        }
+                        return;
+                    }
+                    const headerEl = e.target.closest('.finding-header');
+                    if (headerEl && currentDensity === 'compact') {
+                        const card = headerEl.closest('.finding-card');
+                        if (card) toggleCompactCard(card);
+                    }
+                });
+            }
+
+            const fwPanel = document.getElementById('panel-frameworks');
+            if (fwPanel) {
+                fwPanel.addEventListener('click', function(e) {
+                    const ruleBtn = e.target.closest('[data-jump-rule]');
+                    if (ruleBtn) {
+                        jumpToAuditReportByRule(ruleBtn.getAttribute('data-jump-rule'));
+                        return;
+                    }
+                    const reqBtn = e.target.closest('[data-req-code]');
+                    if (reqBtn) {
+                        jumpToAuditReportByRequirement(reqBtn);
+                        return;
+                    }
+                    const tplBtn = e.target.closest('[data-jump-tpl]');
+                    if (tplBtn) {
+                        jumpToTemplateSection(tplBtn.getAttribute('data-jump-tpl'));
+                        return;
+                    }
+                    const actionBtn = e.target.closest('[data-action="copy-code"]');
+                    if (actionBtn) {
+                        copyCodeBlock(actionBtn);
+                    }
+                });
+            }
+
+            const tplPanel = document.getElementById('panel-template');
+            if (tplPanel) {
+                tplPanel.addEventListener('click', function(e) {
+                    const scrollBtn = e.target.closest('[data-scroll-to]');
+                    if (scrollBtn) {
+                        scrollToElementId(scrollBtn.getAttribute('data-scroll-to'));
+                        return;
+                    }
+                    const fwBtn = e.target.closest('[data-jump-fw]');
+                    if (fwBtn) {
+                        jumpToFrameworkRequirement(fwBtn.getAttribute('data-jump-fw'));
+                        return;
+                    }
+                    const ruleBtn = e.target.closest('[data-jump-rule]');
+                    if (ruleBtn) {
+                        jumpToAuditReportByRule(ruleBtn.getAttribute('data-jump-rule'));
+                        return;
+                    }
+                    const actionBtn = e.target.closest('[data-action]');
+                    if (actionBtn) {
+                        const action = actionBtn.getAttribute('data-action');
+                        if (action === 'copy-section-pre') {
+                            copySectionPre(actionBtn);
+                        } else if (action === 'copy-code') {
+                            copyCodeBlock(actionBtn);
+                        }
+                    }
+                });
+            }
+        }
 
         function setupKeyboardShortcuts() {
             document.addEventListener('keydown', function(e) {
@@ -3080,7 +3281,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
             });
         }
 
-        // Synchronize UI state when browser Find-in-Page matches hidden="until-found" content in compact mode
+        {{- /* Synchronize UI state when browser Find-in-Page matches hidden="until-found" content in compact mode */}}
         function setupBeforeMatchDelegation() {
             const container = document.getElementById('findingsContainer');
             if (!container) return;
@@ -3093,30 +3294,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
                     if (btn) btn.setAttribute('aria-expanded', 'true');
                 }
             });
-        }
-
-        function calculateStats() {
-            const cards = allCards.length > 0 ? allCards : Array.from(document.querySelectorAll('.finding-card'));
-            let total = 0, crit = 0, high = 0, med = 0, low = 0, info = 0;
-
-            cards.forEach(card => {
-                total++;
-                const sev = card.getAttribute('data-severity');
-                if (sev === 'CRITICAL') crit++;
-                else if (sev === 'HIGH') high++;
-                else if (sev === 'MEDIUM') med++;
-                else if (sev === 'LOW') low++;
-                else if (sev === 'INFO') info++;
-            });
-
-            document.getElementById('totalFindingsCount').innerText = total;
-            const inlineTotal = document.getElementById('totalFindingsInline');
-            if (inlineTotal) inlineTotal.innerText = total;
-            document.getElementById('crit-count').innerText = crit;
-            document.getElementById('high-count').innerText = high;
-            document.getElementById('med-count').innerText = med;
-            document.getElementById('low-count').innerText = low;
-            document.getElementById('info-count').innerText = info;
         }
 
         function toggleSeverityCard(sev) {
@@ -3226,11 +3403,19 @@ const htmlTemplateStr = `<!DOCTYPE html>
             };
             for (let s in buttons) {
                 const btn = document.getElementById(buttons[s]);
-                if (btn) btn.classList.toggle('active', s === currentSeverity);
+                if (btn) {
+                    const active = (s === currentSeverity);
+                    btn.classList.toggle('active', active);
+                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                }
             }
             for (let s in metricCards) {
                 const mc = document.getElementById(metricCards[s]);
-                if (mc) mc.classList.toggle('active-metric', s === currentSeverity);
+                if (mc) {
+                    const active = (s === currentSeverity);
+                    mc.classList.toggle('active-metric', active);
+                    mc.setAttribute('aria-pressed', active ? 'true' : 'false');
+                }
             }
         }
 
@@ -3245,7 +3430,11 @@ const htmlTemplateStr = `<!DOCTYPE html>
             };
             for (let c in buttons) {
                 const btn = document.getElementById(buttons[c]);
-                if (btn) btn.classList.toggle('active', c === currentCategory);
+                if (btn) {
+                    const active = (c === currentCategory);
+                    btn.classList.toggle('active', active);
+                    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+                }
             }
             const isPolicySub = (currentCategory === 'GTFOBINS' || currentCategory === 'COMMANDS' || currentCategory === 'DEFAULTS');
             const isAnyPolicy = (currentCategory === 'POLICY' || isPolicySub);
@@ -3260,8 +3449,15 @@ const htmlTemplateStr = `<!DOCTYPE html>
             const container = document.getElementById('findingsContainer');
             const btnDet = document.getElementById('btn-view-detailed');
             const btnComp = document.getElementById('btn-view-compact');
-            if (btnDet) btnDet.classList.toggle('active', currentDensity === 'detailed');
-            if (btnComp) btnComp.classList.toggle('active', currentDensity === 'compact');
+            const isDet = (currentDensity === 'detailed');
+            if (btnDet) {
+                btnDet.classList.toggle('active', isDet);
+                btnDet.setAttribute('aria-pressed', isDet ? 'true' : 'false');
+            }
+            if (btnComp) {
+                btnComp.classList.toggle('active', !isDet);
+                btnComp.setAttribute('aria-pressed', !isDet ? 'true' : 'false');
+            }
 
             if (container) {
                 container.classList.toggle('view-compact', currentDensity === 'compact');
@@ -3288,12 +3484,6 @@ const htmlTemplateStr = `<!DOCTYPE html>
                     if (btn) btn.setAttribute('aria-expanded', 'true');
                 }
             });
-        }
-
-        function handleCardHeaderClick(event, headerEl) {
-            if (currentDensity !== 'compact') return;
-            const card = headerEl.closest('.finding-card');
-            if (card) toggleCompactCard(card);
         }
 
         function toggleCompactCard(card) {
@@ -3356,16 +3546,18 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 allCards = Array.from(container.querySelectorAll('.finding-card'));
             }
 
-            // Sort cards back to canonical order first
+            {{- /* Sort cards back to canonical order first */}}
             const sortedCards = allCards.slice().sort((a, b) => {
                 return parseInt(a.getAttribute('data-order') || '0', 10) - parseInt(b.getAttribute('data-order') || '0', 10);
             });
 
-            // Remove existing dynamic group containers
+            {{- /* Remove existing dynamic group containers */}}
             container.querySelectorAll('.finding-group').forEach(grp => grp.remove());
 
+            const fragment = document.createDocumentFragment();
             if (currentGroupBy === 'NONE') {
-                sortedCards.forEach(card => container.insertBefore(card, noMsg));
+                sortedCards.forEach(card => fragment.appendChild(card));
+                container.insertBefore(fragment, noMsg);
                 return;
             }
 
@@ -3385,10 +3577,14 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 } else if (currentGroupBy === 'RULE') {
                     key = card.getAttribute('data-id') || 'RULE';
                     title = key;
-                    subtitle = card.getAttribute('data-title') || '';
-                    sharedRem = card.getAttribute('data-remediation') || '';
-                    sharedRemCode = card.getAttribute('data-remediation-code') || '';
-                    sharedRemLabel = card.getAttribute('data-remediation-label') || 'Example Fix';
+                    const titleEl = card.querySelector('.finding-title');
+                    subtitle = titleEl ? titleEl.textContent : '';
+                    const remP = card.querySelector('.remediation-content p');
+                    sharedRem = remP ? remP.textContent : '';
+                    const remCodeEl = card.querySelector('.remediation-code-block code');
+                    sharedRemCode = remCodeEl ? remCodeEl.textContent : '';
+                    const remLabelEl = card.querySelector('.remediation-code-label');
+                    sharedRemLabel = remLabelEl ? remLabelEl.textContent : 'Example Fix';
                 } else if (currentGroupBy === 'USER') {
                     key = card.getAttribute('data-principal') || '(Global / Unscoped)';
                     title = key;
@@ -3448,7 +3644,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 const summary = document.createElement('summary');
                 summary.className = 'finding-group-header';
 
-                const left = document.createElement('div');
+                const left = document.createElement('span');
                 left.className = 'group-header-left';
 
                 const chevron = document.createElement('span');
@@ -3468,14 +3664,14 @@ const htmlTemplateStr = `<!DOCTYPE html>
                     left.appendChild(subSpan);
                 }
 
-                const right = document.createElement('div');
+                const right = document.createElement('span');
                 right.className = 'triage-row-badges';
 
-                if ( g.crit > 0 ) right.appendChild(makeMiniBadge(g.crit + ' CRIT', 'badge-crit', 'CRIT'));
-                if ( g.high > 0 ) right.appendChild(makeMiniBadge(g.high + ' HIGH', 'badge-high', 'HIGH'));
-                if ( g.med > 0 ) right.appendChild(makeMiniBadge(g.med + ' MED', 'badge-med', 'MED'));
-                if ( g.low > 0 ) right.appendChild(makeMiniBadge(g.low + ' LOW', 'badge-low', 'LOW'));
-                if ( g.info > 0 ) right.appendChild(makeMiniBadge(g.info + ' INFO', 'badge-info', 'INFO'));
+                if (g.crit > 0) right.appendChild(makeMiniBadge(g.crit + ' CRIT', 'badge-crit', 'CRIT'));
+                if (g.high > 0) right.appendChild(makeMiniBadge(g.high + ' HIGH', 'badge-high', 'HIGH'));
+                if (g.med > 0) right.appendChild(makeMiniBadge(g.med + ' MED', 'badge-med', 'MED'));
+                if (g.low > 0) right.appendChild(makeMiniBadge(g.low + ' LOW', 'badge-low', 'LOW'));
+                if (g.info > 0) right.appendChild(makeMiniBadge(g.info + ' INFO', 'badge-info', 'INFO'));
 
                 const totalSpan = document.createElement('span');
                 totalSpan.className = 'mini-total group-visible-count';
@@ -3486,13 +3682,63 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 summary.appendChild(right);
                 details.appendChild(summary);
 
+                if (currentGroupBy === 'RULE' && (g.sharedRem || g.sharedRemCode)) {
+                    const remBox = document.createElement('div');
+                    remBox.className = 'group-shared-remediation';
+
+                    const remTitle = document.createElement('strong');
+                    remTitle.className = 'group-shared-remediation-title';
+                    remTitle.textContent = 'Shared Rule Remediation (' + g.cards.length + (g.cards.length === 1 ? ' occurrence)' : ' occurrences)');
+                    remBox.appendChild(remTitle);
+
+                    if (g.sharedRem) {
+                        const p = document.createElement('p');
+                        p.textContent = g.sharedRem;
+                        remBox.appendChild(p);
+                    }
+
+                    if (g.sharedRemCode) {
+                        const codeWrap = document.createElement('div');
+                        codeWrap.className = 'remediation-code-block';
+
+                        const codeHeader = document.createElement('div');
+                        codeHeader.className = 'remediation-code-header';
+
+                        const codeLabel = document.createElement('span');
+                        codeLabel.className = 'remediation-code-label';
+                        codeLabel.textContent = g.sharedRemLabel || 'Example Fix';
+                        codeHeader.appendChild(codeLabel);
+
+                        const copyBtn = document.createElement('button');
+                        copyBtn.type = 'button';
+                        copyBtn.className = 'copy-btn';
+                        copyBtn.setAttribute('data-action', 'copy-code');
+                        copyBtn.textContent = 'Copy';
+                        codeHeader.appendChild(copyBtn);
+
+                        codeWrap.appendChild(codeHeader);
+
+                        const pre = document.createElement('pre');
+                        pre.tabIndex = 0;
+                        const code = document.createElement('code');
+                        code.textContent = g.sharedRemCode;
+                        pre.appendChild(code);
+                        codeWrap.appendChild(pre);
+
+                        remBox.appendChild(codeWrap);
+                    }
+
+                    details.appendChild(remBox);
+                }
+
                 const body = document.createElement('div');
                 body.className = 'finding-group-body';
                 g.cards.forEach(card => body.appendChild(card));
                 details.appendChild(body);
 
-                container.insertBefore(details, noMsg);
+                fragment.appendChild(details);
             });
+            container.insertBefore(fragment, noMsg);
         }
 
         function makeMiniBadge(text, cls, sevKey) {
@@ -3501,6 +3747,19 @@ const htmlTemplateStr = `<!DOCTYPE html>
             if (sevKey) span.setAttribute('data-group-sev', sevKey);
             span.textContent = text;
             return span;
+        }
+
+        function getCardSearchText(card) {
+            if (!card._searchText) {
+                card._searchText = [
+                    card.textContent || '',
+                    card.getAttribute('data-category') || '',
+                    card.getAttribute('data-domain') || '',
+                    card.getAttribute('data-file') || '',
+                    card.getAttribute('data-principal') || ''
+                ].join(' ').toLowerCase();
+            }
+            return card._searchText;
         }
 
         function filterFindings() {
@@ -3522,10 +3781,9 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 const principal = card.getAttribute('data-principal');
                 const ruleId = card.getAttribute('data-id');
                 const compCSV = card.getAttribute('data-compliance') || '';
-                const searchBlob = card.getAttribute('data-search') || card.innerText.toLowerCase();
 
                 const normCardComps = compCSV ? compCSV.split(',').map(s => normalizeComplianceJS(s)) : [];
-                const matchesQuery = query === '' || searchBlob.includes(query);
+                const matchesQuery = query === '' || getCardSearchText(card).includes(query);
                 const matchesSeverity = (currentSeverity === 'ALL' || sev === currentSeverity);
                 const matchesCategory = (currentCategory === 'ALL' || cat === currentCategory || dom === currentCategory);
                 const matchesFile = (currentFile === 'ALL' || file === currentFile);
@@ -3542,7 +3800,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                 }
             });
 
-            // Update group visibility and counts when grouped
+            {{- /* Update group visibility and counts when grouped */}}
             document.querySelectorAll('.finding-group').forEach(grp => {
                 const grpCards = grp.querySelectorAll('.finding-card');
                 let grpVisible = 0, gCrit = 0, gHigh = 0, gMed = 0, gLow = 0, gInfo = 0;
@@ -3574,13 +3832,13 @@ const htmlTemplateStr = `<!DOCTYPE html>
             });
 
             const visEl = document.getElementById('visibleFindingsCount');
-            if (visEl) visEl.innerText = visibleCount;
+            if (visEl) visEl.textContent = visibleCount;
 
             updateActiveFilterChips(query);
 
             const noMsg = document.getElementById('noFindingsMsg');
             if (noMsg) {
-                noMsg.style.display = visibleCount === 0 ? 'block' : 'none';
+                noMsg.hidden = visibleCount !== 0;
             }
         }
 
@@ -3648,13 +3906,10 @@ const htmlTemplateStr = `<!DOCTYPE html>
 </html>
 `
 
+var htmlReportTmpl = template.Must(template.New("htmlReport").Parse(htmlTemplateStr))
+
 // WriteHTMLReport formats the audit results as a responsive, interactive HTML report.
 func WriteHTMLReport(result *audit.AuditResult, w io.Writer) error {
-	t, err := template.New("htmlReport").Parse(htmlTemplateStr)
-	if err != nil {
-		return err
-	}
-
 	reportData := buildHTMLReportData(result)
-	return t.Execute(w, &reportData)
+	return htmlReportTmpl.Execute(w, &reportData)
 }

@@ -504,6 +504,43 @@ func TestWriteHTMLReport(t *testing.T) {
 			t.Errorf("Missing expected hardened template token %q in HTML report", tplToken)
 		}
 	}
+
+	// Verify accessibility landmarks, skip link, color-scheme, and semantic button controls
+	for _, a11yToken := range []string{
+		`<meta name="color-scheme" content="dark light">`,
+		`<a href="#main-content" class="skip-link">Skip to main content</a>`,
+		`<main id="main-content" tabindex="-1">`,
+		`<div class="findings-list" id="findingsContainer">`,
+		`role="status" aria-live="polite" aria-atomic="true"`,
+		`<button type="button" class="metric-card`,
+		`aria-pressed="false"`,
+		`<button type="button" class="compliance-badge"`,
+		`<button type="button" class="location-pill"`,
+		`<button type="button" class="clickable-meta"`,
+		`--accent-crit: #ff6961;`,
+		`remBox.className = 'group-shared-remediation'`,
+		`setupEventDelegation()`,
+		`getCardSearchText(`,
+		`data-jump-rule="`,
+		`data-jump-tpl="`,
+		`data-action="copy-section-pre"`,
+	} {
+		if !strings.Contains(out, a11yToken) {
+			t.Errorf("Missing expected accessibility/performance token %q in HTML report", a11yToken)
+		}
+	}
+
+	// Verify redundant data-search and data-remediation attributes were removed from finding cards
+	for _, removedAttr := range []string{
+		`data-search="`,
+		`data-remediation="`,
+		`data-remediation-code="`,
+		`data-remediation-code-label="`,
+	} {
+		if strings.Contains(out, removedAttr) {
+			t.Errorf("Unexpected redundant attribute %q still present in HTML report", removedAttr)
+		}
+	}
 }
 
 func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {

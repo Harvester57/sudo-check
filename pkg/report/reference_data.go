@@ -40,7 +40,6 @@ type FrameworkRequirement struct {
 	HighestSeverity  audit.Severity
 	BadgeClass       string
 	TemplateAnchor   string
-	SearchText       string
 }
 
 // HardenedTemplateSection represents a copy-pasteable configuration or shell block in Tab 3.
@@ -477,20 +476,6 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 				req.HighestSeverity = audit.SeverityInfo
 				req.BadgeClass = "badge-compliant"
 			}
-
-			searchParts := []string{
-				req.Code,
-				req.FrameworkShort,
-				req.Title,
-				req.Level,
-				req.VerbatimQuote,
-				req.VerbatimQuoteFR,
-				req.Rationale,
-				req.DirectivesCode,
-				strings.Join(req.RuleIDs, " "),
-				strings.Join(req.ComplianceTags, " "),
-			}
-			req.SearchText = strings.ToLower(strings.Join(searchParts, " "))
 		}
 		g.TotalFindings = len(groupFindingSeen)
 	}
