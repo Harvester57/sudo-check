@@ -656,6 +656,68 @@ func TestAuditCommands(t *testing.T) {
 	})
 }
 
+// --- SELinux Context Elevation Tests (SUDO-CMD-013) ---
+
+func TestAuditSELinuxContextElevation(t *testing.T) {
+	gtfoClient := requireGTFOClient(t)
+
+	t.Run("AllCommandWithoutTypeRole", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList:  []Member{{Username: "%wheel"}},
+			HostList:  []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{Commands: []Member{{Command: "ALL"}}}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingPresent(t, findings, "SUDO-CMD-013")
+		assertFindingSeverity(t, findings, "SUDO-CMD-013", SeverityInfo)
+	})
+
+	t.Run("AllRunasWithoutTypeRole", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList:  []Member{{Username: "alice"}},
+			HostList:  []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{RunasUsers: []Member{{Username: "ALL"}}, Commands: []Member{{Command: "/usr/bin/systemctl"}}}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingPresent(t, findings, "SUDO-CMD-013")
+	})
+
+	t.Run("PartialTypeOnly", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList:  []Member{{Username: "alice"}},
+			HostList:  []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{Options: []Option{{"type": "sysadm_t"}}, Commands: []Member{{Command: "ALL"}}}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingPresent(t, findings, "SUDO-CMD-013")
+		for _, f := range findings {
+			if f.ID == "SUDO-CMD-013" && f.Title != "Incomplete SELinux Context Elevation on Administrator Rule (TYPE/ROLE)" {
+				t.Errorf("Expected incomplete-elevation variant title, got %q", f.Title)
+			}
+		}
+	})
+
+	t.Run("WithTypeRole_NoFinding", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList:  []Member{{Username: "%wheel"}},
+			HostList:  []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{Options: []Option{{"type": "sysadm_t"}, {"role": "sysadm_r"}}, Commands: []Member{{Command: "ALL"}}}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingAbsent(t, findings, "SUDO-CMD-013")
+	})
+
+	t.Run("NonAdminRule_NoFinding", func(t *testing.T) {
+		policy := &SudoersPolicy{UserSpecs: []UserSpec{{
+			UserList:  []Member{{Username: "alice"}},
+			HostList:  []Member{{Hostname: "ALL"}},
+			CmndSpecs: []CmndSpec{{RunasUsers: []Member{{Username: "root"}}, Commands: []Member{{Command: "/usr/bin/systemctl"}}}},
+		}}}
+		findings := AuditCommands(policy, gtfoClient)
+		assertFindingAbsent(t, findings, "SUDO-CMD-013")
+	})
+}
+
 // --- Version Parsing Tests ---
 
 func TestParseSudoVersion(t *testing.T) {

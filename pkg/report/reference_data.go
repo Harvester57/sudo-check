@@ -151,6 +151,11 @@ WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: \
 # --- 9. Modular Drop-In Directory ---
 # Note: Only enable #includedir after verifying /etc/sudoers.d and all files inside are root:root 0440.
 # #includedir /etc/sudoers.d
+
+# --- 10. SELinux Context Elevation for Administrators (DISA STIG V-272484 / RHEL-08-010455) ---
+# This baseline intentionally grants no administrator-grade rules (no ALL commands, no ALL runas).
+# If such rules are required on SELinux hosts, elevate the SELinux context explicitly:
+# %sudo_admins ALL=(ALL) TYPE=sysadm_t ROLE=sysadm_r ALL
 `) + "\n"
 }
 
@@ -402,7 +407,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 			VersionInfo:  "RHEL 8/9 STIG & Ubuntu 22.04/24.04 STIG",
 			Publisher:    "Defense Information Systems Agency (DISA)",
 			ReferenceURL: "https://public.cyber.mil/stigs/",
-			Summary:      "U.S. Department of Defense (DoD) mandatory configuration requirements for operating systems. Requires a password and re-authentication for privilege escalation, prohibits NOPASSWD and !authenticate, requires the invoking user's password for sudo (prohibiting rootpw, targetpw, and runaspw), requires a non-negative sudo timestamp timeout. The RHEL 9 and Ubuntu LTS STIGs carry equivalent findings.",
+			Summary:      "U.S. Department of Defense (DoD) mandatory configuration requirements for operating systems. Requires a password and re-authentication for privilege escalation, prohibits NOPASSWD and !authenticate, requires the invoking user's password for sudo (prohibiting rootpw, targetpw, and runaspw), requires a non-negative sudo timestamp timeout, and requires administrator-grade sudo rules to elevate the SELinux context. The RHEL 9 and Ubuntu LTS STIGs carry equivalent findings.",
 			Requirements: []FrameworkRequirement{
 				{
 					ID:             "stig-reauth",
@@ -416,6 +421,21 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					Rationale:      "Without mandatory password verification and a bounded credential cache, any compromise of an unprivileged process allows silent, unauthenticated execution of administrative commands across sessions.",
 					DirectivesCode: "Defaults authenticate\nDefaults timestamp_timeout=5",
 					RuleIDs:        []string{"SUDO-DEF-012", "SUDO-DEF-015", "SUDO-CMD-003", "SUDO-CMD-005"},
+					ComplianceTags: []string{},
+					TemplateAnchor: "tpl-sudoers-baseline",
+				},
+				{
+					ID:             "stig-selinux-context",
+					FrameworkID:    "DISA-STIG",
+					FrameworkShort: "DISA STIG",
+					Code:           "DISA-STIG",
+					Title:          "SELinux Context Elevation for sudo Administrators (TYPE=sysadm_t ROLE=sysadm_r)",
+					Level:          "CAT II (Medium)",
+					CitationURL:    "https://public.cyber.mil/stigs/",
+					VerbatimQuote:  "RHEL 8 STIG, SV-272484 (RHEL-08-010455): 'RHEL 8 must elevate the SELinux context when an administrator calls the sudo command.' Check: 'If a designated sudoers administrator group or account(s) is not configured to elevate the SELinux type and role to \"sysadm_t\" and \"sysadm_r\" with the use of the sudo command, this is a finding.' Fix: 'Use the following example to build the <customfile> in the /etc/sudoers.d directory to allow any administrator belonging to a designated sudoers admin group to elevate their SELinux context with the use of the sudo command: %{designated_group_or_user_name} ALL=(ALL) TYPE=sysadm_t ROLE=sysadm_r ALL'",
+					Rationale:      "Without an explicit SELinux type and role transition, commands run via sudo execute in the invoking user's SELinux context, so privileged administration either fails under the policy or forces the login domain to be granted administrator privileges, eroding the separation between user space and admin space.",
+					DirectivesCode: "%sudo_admins ALL=(ALL) TYPE=sysadm_t ROLE=sysadm_r ALL",
+					RuleIDs:        []string{"SUDO-CMD-013"},
 					ComplianceTags: []string{},
 					TemplateAnchor: "tpl-sudoers-baseline",
 				},
@@ -695,6 +715,7 @@ func buildTraceabilityMatrix() []TraceabilityRow {
 		{RuleID: "SUDO-CMD-010", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "sudoedit Permitted on Sensitive System File", Frameworks: []string{}, Directive: `sudoedit /etc/nginx/conf.d/app-vhost.conf`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-011", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "Relative or Temporary/Writable Command Path", Frameworks: []string{}, Directive: `/usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-CMD-012", Domain: "Command Rule", Severity: audit.SeverityLow, Title: "Weak Cryptographic Digest on Command (SHA-224)", Frameworks: []string{}, Directive: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 /usr/local/sbin/...`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-CMD-013", Domain: "Command Rule", Severity: audit.SeverityInfo, Title: "Missing or Incomplete SELinux Context Elevation on Administrator Rule (TYPE/ROLE)", Frameworks: []string{"DISA-STIG"}, Directive: `%sudo_admins ALL=(ALL) TYPE=sysadm_t ROLE=sysadm_r ALL`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-GTFO-001", Domain: "GTFObins", Severity: audit.SeverityHigh, Title: "Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: NOEXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-GTFO-002", Domain: "GTFObins", Severity: audit.SeverityCritical, Title: "Passwordless Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: NOEXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-GTFO-003", Domain: "GTFObins", Severity: audit.SeverityLow, Title: "Mitigated GTFObins Binary (NOEXEC on shell/command)", Frameworks: []string{"ANSSI-BP-028 R39", "MITRE-T1548.003"}, Directive: `# Replace direct GTFObins binary with dedicated root-owned wrapper script`, SectionID: "tpl-wrapper-script"},

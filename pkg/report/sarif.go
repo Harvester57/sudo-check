@@ -77,6 +77,7 @@ var canonicalRuleTitles = map[string]string{
 	"SUDO-GTFO-003": "Mitigated Permitted Binary in GTFObins Catalog",
 	"SUDO-DEF-001":  "Missing or Empty secure_path Configuration",
 	"SUDO-DEF-009":  "Missing or Weak umask Configuration",
+	"SUDO-CMD-013":  "Missing or Incomplete SELinux Context Elevation on Administrator Rule",
 }
 
 func canonicalRuleTitle(f audit.Finding) string {

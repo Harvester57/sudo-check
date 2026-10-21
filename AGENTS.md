@@ -24,7 +24,7 @@ Welcome! This repository contains `sudo-check`, a security audit utility for sud
   - [auditor.go](pkg/audit/auditor.go): Combines defaults and command audits.
   - [types.go](pkg/audit/types.go): Data structures for `SudoersPolicy`, `Finding`, `Severity`, `Member`, and `DigestList`.
   - [rules_defaults.go](pkg/audit/rules_defaults.go): Audits global and scoped defaults using last-match-wins reduction (`SUDO-DEF-001` through `SUDO-DEF-016`).
-  - [rules_commands.go](pkg/audit/rules_commands.go): Expands aliases and audits user command rules against GTFObins, wildcards, negations, argument restrictions, `sudoedit` targets, writable paths, per-rule tags, and digests (`SUDO-CMD-001` through `SUDO-CMD-012`, `SUDO-GTFO-001` through `SUDO-GTFO-003`).
+  - [rules_commands.go](pkg/audit/rules_commands.go): Expands aliases and audits user command rules against GTFObins, wildcards, negations, argument restrictions, `sudoedit` targets, writable paths, per-rule tags, digests, and SELinux context elevation (`SUDO-CMD-001` through `SUDO-CMD-013`, `SUDO-GTFO-001` through `SUDO-GTFO-003`).
   - [rules_system.go](pkg/audit/rules_system.go): Audits target system file/directory/binary permissions and compares `sudo --version` against CVE ranges.
 - **`pkg/cvtsudoers/`**:
   - [wrapper.go](pkg/cvtsudoers/wrapper.go): Finds and runs `cvtsudoers` with flags `-e -f json`.

@@ -483,6 +483,8 @@ func TestWriteHTMLReport(t *testing.T) {
 		"CIS-5.2.6",
 		"CIS-5.2.7",
 		"DISA-STIG",
+		"SV-272484",
+		"TYPE=sysadm_t ROLE=sysadm_r",
 		"MITRE-T1548.003",
 	} {
 		if !strings.Contains(out, fwToken) {
@@ -570,6 +572,12 @@ func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {
 				Severity:   audit.SeverityHigh,
 				Compliance: []string{"ANSSI-BP-028", "MITRE-T1548.003"},
 			},
+			{
+				ID:         "SUDO-CMD-013",
+				Title:      "Missing SELinux Context Elevation on Administrator Rule (TYPE/ROLE)",
+				Severity:   audit.SeverityInfo,
+				Compliance: []string{"DISA-STIG"},
+			},
 		},
 	}
 
@@ -609,6 +617,23 @@ func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {
 	}
 	if mitreReq.ViolationCount != 1 {
 		t.Errorf("Expected mitre-t1548-003 ViolationCount == 1 (deduplicated), got %d", mitreReq.ViolationCount)
+	}
+
+	// DISA STIG SELinux context requirement matches SUDO-CMD-013 by RuleID only
+	// (its ComplianceTags are empty so the generic "DISA-STIG" tag does not bleed into stig-reauth)
+	stigSelinux, ok := reqByID["stig-selinux-context"]
+	if !ok {
+		t.Fatalf("Missing stig-selinux-context requirement in catalog")
+	}
+	if stigSelinux.ViolationCount != 1 {
+		t.Errorf("Expected stig-selinux-context ViolationCount == 1 (SUDO-CMD-013), got %d", stigSelinux.ViolationCount)
+	}
+	stigReauth, ok := reqByID["stig-reauth"]
+	if !ok {
+		t.Fatalf("Missing stig-reauth requirement in catalog")
+	}
+	if stigReauth.ViolationCount != 0 {
+		t.Errorf("Expected stig-reauth ViolationCount == 0 (SUDO-CMD-013 must not bleed into it), got %d", stigReauth.ViolationCount)
 	}
 
 	// ANSSI group total findings must be deduplicated across requirements (3 distinct findings total)

@@ -194,6 +194,9 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 				allCmdMembers = append(allCmdMembers, resolveCommands(cmdMember, policy)...)
 			}
 
+			// Check for missing SELinux context elevation on administrator-grade rules (SUDO-CMD-013)
+			findings = append(findings, auditSELinuxContextElevation(cs.Options, allCmdMembers, resolvedRunasUsers, usersStr, hostsStr, runasStr, spec.File, spec.Line)...)
+
 			for _, cmdMember := range allCmdMembers {
 				cmdStr := cmdMember.Command
 				if cmdStr == "" {
@@ -636,6 +639,59 @@ func optionStringValue(options []Option, key string) string {
 		}
 	}
 	return ""
+}
+
+// auditSELinuxContextElevation flags administrator-grade command specifications that do not
+// elevate the SELinux context via the TYPE= and ROLE= options, as required for designated
+// sudoers administrators by DISA STIG V-272484 / RHEL-08-010455. A specification is
+// administrator-grade when it allows the ALL command or targets the ALL runas user.
+func auditSELinuxContextElevation(options []Option, cmdMembers []Member, runasUsers []Member, usersStr, hostsStr, runasStr, file string, line int) []Finding {
+	adminGrade := false
+	for _, m := range cmdMembers {
+		if m.Command == "ALL" {
+			adminGrade = true
+			break
+		}
+	}
+	if !adminGrade {
+		for _, m := range runasUsers {
+			if m.GetName() == "ALL" {
+				adminGrade = true
+				break
+			}
+		}
+	}
+	if !adminGrade {
+		return nil
+	}
+
+	selType := optionStringValue(options, "type")
+	selRole := optionStringValue(options, "role")
+	if selType != "" && selRole != "" {
+		return nil
+	}
+
+	title := "Missing SELinux Context Elevation on Administrator Rule (TYPE/ROLE)"
+	description := fmt.Sprintf("The administrator-grade rule for user(s) [%s] on host(s) [%s] running as [%s] does not specify the 'TYPE=' and 'ROLE=' options. Without an explicit SELinux type and role transition, commands executed via sudo run in the invoking user's SELinux context instead of the administrator domain.", usersStr, hostsStr, runasStr)
+	if selType != "" || selRole != "" {
+		title = "Incomplete SELinux Context Elevation on Administrator Rule (TYPE/ROLE)"
+		description = fmt.Sprintf("The administrator-grade rule for user(s) [%s] on host(s) [%s] running as [%s] specifies only one of the 'TYPE=' (%s) and 'ROLE=' (%s) options. Both are required together for sudo to transition into the administrator SELinux domain.", usersStr, hostsStr, runasStr, selType, selRole)
+	}
+
+	return []Finding{{
+		ID:              "SUDO-CMD-013",
+		Title:           title,
+		Description:     description,
+		Severity:        SeverityInfo,
+		User:            usersStr,
+		Host:            hostsStr,
+		Runas:           runasStr,
+		Context:         file,
+		Line:            line,
+		Remediation:     "Add 'TYPE=sysadm_t ROLE=sysadm_r' to the administrator rule so sudo transitions to the SELinux administrator domain (DISA STIG V-272484 / RHEL-08-010455). On hosts not running SELinux this finding is informational and can be disregarded.",
+		RemediationCode: fmt.Sprintf("%s %s = (%s) TYPE=sysadm_t ROLE=sysadm_r ALL", usersStr, hostsStr, runasStr),
+		Compliance:      []string{"DISA-STIG"},
+	}}
 }
 
 func formatRunas(runasUsers, runasGroups []Member) (string, []string) {
