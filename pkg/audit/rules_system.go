@@ -271,7 +271,7 @@ func evaluateSudoersFilePermissions(filePath string, fullMode os.FileMode, owner
 			Context:         filePath,
 			Remediation:     fmt.Sprintf("Run 'chmod 0440 %s' to restrict write access.", filePath),
 			RemediationCode: fmt.Sprintf("sudo chmod 0440 %s\nsudo visudo -c -f %s", filePath, filePath),
-			Compliance:      []string{"ANSSI-BP-028 R38", "CIS-5.2.1"},
+			Compliance:      []string{},
 		})
 	}
 	// Check if world has write permission
@@ -284,7 +284,7 @@ func evaluateSudoersFilePermissions(filePath string, fullMode os.FileMode, owner
 			Context:         filePath,
 			Remediation:     fmt.Sprintf("Run 'chmod 0440 %s' immediately to secure the policy file.", filePath),
 			RemediationCode: fmt.Sprintf("sudo chmod 0440 %s\nsudo visudo -c -f %s", filePath, filePath),
-			Compliance:      []string{"ANSSI-BP-028 R38", "CIS-5.2.1"},
+			Compliance:      []string{},
 		})
 	}
 	// Check if world has read permission
@@ -297,7 +297,7 @@ func evaluateSudoersFilePermissions(filePath string, fullMode os.FileMode, owner
 			Context:         filePath,
 			Remediation:     fmt.Sprintf("Run 'chmod 0440 %s' to restrict read access to authorized users.", filePath),
 			RemediationCode: fmt.Sprintf("sudo chmod 0440 %s", filePath),
-			Compliance:      []string{"ANSSI-BP-028 R38", "CIS-5.2.1"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -311,7 +311,7 @@ func evaluateSudoersFilePermissions(filePath string, fullMode os.FileMode, owner
 				Context:         filePath,
 				Remediation:     fmt.Sprintf("Run 'chown root:root %s' to reset ownership.", filePath),
 				RemediationCode: fmt.Sprintf("sudo chown root:root %s\nsudo chmod 0440 %s", filePath, filePath),
-				Compliance:      []string{"ANSSI-BP-028 R38", "CIS-5.2.1"},
+				Compliance:      []string{},
 			})
 		}
 		if ownerGID != 0 && (mode&0070 != 0) {
@@ -323,7 +323,7 @@ func evaluateSudoersFilePermissions(filePath string, fullMode os.FileMode, owner
 				Context:         filePath,
 				Remediation:     fmt.Sprintf("Run 'chown root:root %s' and 'chmod 0440 %s'.", filePath, filePath),
 				RemediationCode: fmt.Sprintf("sudo chown root:root %s\nsudo chmod 0440 %s", filePath, filePath),
-				Compliance:      []string{"ANSSI-BP-028 R38", "CIS-5.2.1"},
+				Compliance:      []string{},
 			})
 		}
 	}
@@ -513,7 +513,7 @@ func AuditPolicyTargetBinaries(policy *SudoersPolicy) []Finding {
 								Context:         parentDir,
 								Remediation:     fmt.Sprintf("Run 'chmod 0755 %s' and 'chown root:root %s' to secure the directory.", parentDir, parentDir),
 								RemediationCode: fmt.Sprintf("sudo chown root:root %s\nsudo chmod 0755 %s", parentDir, parentDir),
-								Compliance:      []string{"ANSSI-BP-028"},
+								Compliance:      []string{},
 							})
 						}
 					}
@@ -539,7 +539,7 @@ func evaluateTargetBinaryPermissions(exePath string, fullMode os.FileMode, owner
 			Context:         exePath,
 			Remediation:     fmt.Sprintf("Run 'chmod 0755 %s' and 'chown root:root %s' to prevent unauthorized modification.", exePath, exePath),
 			RemediationCode: fmt.Sprintf("sudo chown root:root %s\nsudo chmod 0755 %s", exePath, exePath),
-			Compliance:      []string{"ANSSI-BP-028"},
+			Compliance:      []string{},
 		})
 	} else if hasOwner && ownerUID != 0 {
 		findings = append(findings, Finding{
@@ -551,7 +551,7 @@ func evaluateTargetBinaryPermissions(exePath string, fullMode os.FileMode, owner
 			Context:         exePath,
 			Remediation:     fmt.Sprintf("Run 'chown root:root %s' to ensure the executable is owned by root.", exePath),
 			RemediationCode: fmt.Sprintf("sudo chown root:root %s\nsudo chmod 0755 %s", exePath, exePath),
-			Compliance:      []string{"ANSSI-BP-028"},
+			Compliance:      []string{},
 		})
 	}
 

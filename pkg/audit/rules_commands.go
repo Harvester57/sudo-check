@@ -156,7 +156,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 					"User_Alias %s = alice, bob\n%s %s = (root) /usr/bin/id \"\"",
 					posUser, posUser, posHost,
 				),
-				Compliance: []string{"ANSSI-BP-028 R40"},
+				Compliance: []string{"ANSSI-BP-028 R42"},
 			})
 		}
 
@@ -181,7 +181,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						"Runas_Alias ALLOWED_RUNAS = www-data, postgres\n%s %s = (ALLOWED_RUNAS) /usr/bin/id \"\"",
 						usersStr, hostsStr,
 					),
-					Compliance: []string{"ANSSI-BP-028 R40"},
+					Compliance: []string{"ANSSI-BP-028 R42"},
 				})
 			}
 
@@ -225,7 +225,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Line:            line,
 						Remediation:     "Avoid using negated commands (!) to enforce restrictions. Instead, use a strict allowlist of permitted commands.",
 						RemediationCode: fmt.Sprintf("%s %s = (%s) /usr/bin/systemctl status app", usersStr, hostsStr, runasStr),
-						Compliance:      []string{"ANSSI-BP-028 R40"},
+						Compliance:      []string{"ANSSI-BP-028 R42"},
 					})
 					continue
 				}
@@ -249,7 +249,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							"# 1. Compute SHA-256 digest:\nsha256sum %s\n\n# 2. Pin in sudoers:\n%s %s = (%s) sha256:<64-hex-digest> %s",
 							exeForDigest, usersStr, hostsStr, runasStr, cmdStr,
 						),
-						Compliance: []string{"ANSSI-BP-028"},
+						Compliance: []string{},
 					})
 				}
 
@@ -264,6 +264,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						usersStr, hostsStr, runasStr,
 					)
 					id := "SUDO-CMD-002"
+					compliance := []string{"ANSSI-BP-028 R43"}
 
 					if noPasswd {
 						sev = SeverityCritical
@@ -274,6 +275,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							usersStr, hostsStr, runasStr,
 						)
 						id = "SUDO-CMD-003"
+						compliance = append(compliance, "CIS-5.2.4")
 					}
 
 					findings = append(findings, Finding{
@@ -289,7 +291,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Line:            line,
 						Remediation:     remediation,
 						RemediationCode: remediationCode,
-						Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4"},
+						Compliance:      compliance,
 					})
 					continue
 				}
@@ -322,7 +324,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Line:            line,
 						Remediation:     "Avoid wildcards in command paths. Use specific paths or write wrapper scripts that validate inputs before executing commands.",
 						RemediationCode: fmt.Sprintf("%s %s = (%s) %s", usersStr, hostsStr, runasStr, safeCmdExample),
-						Compliance:      []string{"ANSSI-BP-028"},
+						Compliance:      []string{"ANSSI-BP-028 R43"},
 					})
 				}
 
@@ -342,7 +344,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							Line:            line,
 							Remediation:     "Explicitly specify the exact absolute file paths that may be edited with 'sudoedit'.",
 							RemediationCode: fmt.Sprintf("%s %s = (%s) sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
-							Compliance:      []string{"ANSSI-BP-028"},
+							Compliance:      []string{"ANSSI-BP-028 R43"},
 						})
 					} else {
 						for _, arg := range parts[1:] {
@@ -360,7 +362,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 									Line:            line,
 									Remediation:     "Remove sensitive system configuration and authentication files from 'sudoedit' rules.",
 									RemediationCode: fmt.Sprintf("%s %s = (%s) sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
-									Compliance:      []string{"ANSSI-BP-028"},
+									Compliance:      []string{},
 								})
 								break
 							}
@@ -388,7 +390,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Line:            line,
 						Remediation:     "Specify the full absolute path to the executable (e.g. '/usr/bin/" + binaryName + "').",
 						RemediationCode: fmt.Sprintf("%s %s = (%s) /usr/bin/%s %s", usersStr, hostsStr, runasStr, binaryName, argSuffix),
-						Compliance:      []string{"ANSSI-BP-028"},
+						Compliance:      []string{},
 					})
 				} else if isWritableOrTempPath(exePath) {
 					findings = append(findings, Finding{
@@ -407,7 +409,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							"sudo install -o root -g root -m 0755 %s /usr/local/sbin/%s\nsudo sha256sum /usr/local/sbin/%s\n# In visudo:\n%s %s = (%s) sha256:<digest> /usr/local/sbin/%s \"\"",
 							exePath, binaryName, binaryName, usersStr, hostsStr, runasStr, binaryName,
 						),
-						Compliance: []string{"ANSSI-BP-028"},
+						Compliance: []string{},
 					})
 				}
 
@@ -426,7 +428,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 						Line:            line,
 						Remediation:     "Strictly specify the allowed arguments. If the command should be run without any arguments, append empty double quotes '\"\"' to the command (e.g., 'dmesg \"\"').",
 						RemediationCode: fmt.Sprintf("%s %s = (%s) %s \"\"", usersStr, hostsStr, runasStr, exePath),
-						Compliance:      []string{"ANSSI-BP-028 R41"},
+						Compliance:      []string{"ANSSI-BP-028 R43"},
 					})
 				}
 
@@ -452,7 +454,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							"Defaults !sudoedit_follow, sudoedit_checkdir\n%s %s = (%s) sudoedit %s",
 							usersStr, hostsStr, runasStr, targetFile,
 						),
-						Compliance: []string{"ANSSI-BP-028 R42"},
+						Compliance: []string{"ANSSI-BP-028 R44"},
 					})
 				}
 
@@ -506,7 +508,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							Remediation:     fmt.Sprintf("Remove this binary from sudoers or replace it with a wrapper script. Example exploit command:\n%s", bypass.Code),
 							RemediationCode: gtfoRemCode,
 							ExploitPoC:      bypass.Code,
-							Compliance:      []string{"ANSSI-BP-028", "MITRE-T1548.003"},
+							Compliance:      []string{"MITRE-T1548.003"},
 						})
 					}
 				} else {
@@ -528,7 +530,7 @@ func AuditCommands(policy *SudoersPolicy, gtfoClient *gtfobins.Client) []Finding
 							Line:            line,
 							Remediation:     "Ensure that passwordless privileges are strictly necessary. If possible, require authentication or implement strict input validation inside target wrapper scripts.",
 							RemediationCode: fmt.Sprintf("%s %s = (%s) PASSWD: NOEXEC: %s", usersStr, hostsStr, runasStr, lockedCmd),
-							Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4"},
+							Compliance:      []string{"CIS-5.2.4"},
 						})
 					}
 				}
@@ -573,7 +575,7 @@ func auditCmndSpecOptions(options []Option, usersStr, hostsStr, runasStr, file s
 				Line:            line,
 				Remediation:     "Remove the 'SETENV:' tag or replace it with 'NOSETENV:'.",
 				RemediationCode: fmt.Sprintf("%s %s = (%s) NOSETENV: /usr/bin/command \"\"", usersStr, hostsStr, runasStr),
-				Compliance:      []string{"ANSSI-BP-028"},
+				Compliance:      []string{},
 			})
 		}
 		if val, ok := opt["sudoedit_follow"].(bool); ok && val {
@@ -589,7 +591,7 @@ func auditCmndSpecOptions(options []Option, usersStr, hostsStr, runasStr, file s
 				Line:            line,
 				Remediation:     "Remove the 'FOLLOW:' tag or explicitly enforce 'NOFOLLOW:'.",
 				RemediationCode: fmt.Sprintf("%s %s = (%s) NOFOLLOW: sudoedit /etc/myapp/config.conf", usersStr, hostsStr, runasStr),
-				Compliance:      []string{"ANSSI-BP-028"},
+				Compliance:      []string{},
 			})
 		}
 		if val, ok := opt["runchroot"].(string); ok && val != "" {
@@ -624,6 +626,16 @@ func auditCmndSpecOptions(options []Option, usersStr, hostsStr, runasStr, file s
 		}
 	}
 	return findings
+}
+
+// optionStringValue returns the string value of the first option with the given key.
+func optionStringValue(options []Option, key string) string {
+	for _, opt := range options {
+		if val, ok := opt[key].(string); ok {
+			return val
+		}
+	}
+	return ""
 }
 
 func formatRunas(runasUsers, runasGroups []Member) (string, []string) {

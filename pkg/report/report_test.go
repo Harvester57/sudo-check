@@ -471,12 +471,15 @@ func TestWriteHTMLReport(t *testing.T) {
 		"ANSSI-BP-028 R40",
 		"ANSSI-BP-028 R41",
 		"ANSSI-BP-028 R42",
+		"ANSSI-BP-028 R43",
+		"ANSSI-BP-028 R44",
 		"Defaults noexec,requiretty,use_pty,umask=0077",
-		"Defaults ignore_dot,env_reset,passwd_timeout=1",
+		"Defaults ignore_dot,env_reset",
 		"CIS-5.2.1",
 		"CIS-5.2.2",
 		"CIS-5.2.3",
 		"CIS-5.2.4",
+		"CIS-5.2.5",
 		"CIS-5.2.6",
 		"CIS-5.2.7",
 		"DISA-STIG",
@@ -544,22 +547,22 @@ func TestWriteHTMLReport(t *testing.T) {
 }
 
 func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {
-	// Verify that findings with generic compliance tags (e.g., SUDO-DEF-001 with "ANSSI-BP-028", "CIS-5.2")
-	// or no compliance tags (e.g., SUDO-DEF-016) still trigger their specific mapped requirements
-	// (such as ANSSI-BP-028 R39 and CIS-5.2.1) without double-counting when both RuleID and ComplianceTag match.
+	// Verify that findings with generic compliance tags (e.g., SUDO-DEF-003 with "ANSSI-BP-028", "CIS-5.2.2")
+	// or no compliance tags (e.g., SUDO-DEF-009) still trigger their specific mapped requirements
+	// (such as ANSSI-BP-028 R39 and CIS-5.2.2) without double-counting when both RuleID and ComplianceTag match.
 	res := &audit.AuditResult{
 		PolicyFindings: []audit.Finding{
 			{
-				ID:         "SUDO-DEF-001",
-				Title:      "Missing secure_path Configuration",
-				Severity:   audit.SeverityHigh,
-				Compliance: []string{"ANSSI-BP-028", "CIS-5.2"},
+				ID:         "SUDO-DEF-003",
+				Title:      "Missing or Disabled use_pty",
+				Severity:   audit.SeverityMedium,
+				Compliance: []string{"ANSSI-BP-028", "CIS-5.2.2"},
 			},
 			{
-				ID:       "SUDO-DEF-016",
-				Title:    "Deprecated or Risky Chroot Directive in Defaults (runchroot)",
-				Severity: audit.SeverityHigh,
-				// No Compliance slice on SUDO-DEF-016 in rules_defaults.go
+				ID:       "SUDO-DEF-009",
+				Title:    "Missing umask Configuration",
+				Severity: audit.SeverityMedium,
+				// No Compliance slice on this finding
 			},
 			{
 				ID:         "SUDO-GTFO-001",
@@ -581,13 +584,13 @@ func TestBuildFrameworkCatalog_RuleAndTagMatching(t *testing.T) {
 		}
 	}
 
-	// ANSSI R39 maps SUDO-DEF-001 and SUDO-DEF-016 -> must report exactly 2 violations (not 0)
+	// ANSSI R39 maps SUDO-DEF-003 and SUDO-DEF-009 -> must report exactly 2 violations (not 0)
 	r39, ok := reqByID["anssi-r39"]
 	if !ok {
 		t.Fatalf("Missing anssi-r39 requirement in catalog")
 	}
 	if r39.ViolationCount != 2 {
-		t.Errorf("Expected anssi-r39 ViolationCount == 2 (SUDO-DEF-001 + SUDO-DEF-016), got %d", r39.ViolationCount)
+		t.Errorf("Expected anssi-r39 ViolationCount == 2 (SUDO-DEF-003 + SUDO-DEF-009), got %d", r39.ViolationCount)
 	}
 
 	// ANSSI R41 maps SUDO-GTFO-001 -> must report 1 violation even though SUDO-GTFO-001 has tag "ANSSI-BP-028" (without R41)

@@ -2720,7 +2720,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         <div id="panel-frameworks" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-frameworks" hidden>
             <div class="frameworks-intro-banner">
                 <h2>Reference Security Frameworks &amp; Verbatim Requirements</h2>
-                <p>Complete reference catalog of all security standards enforced by <code>sudo-check</code>: <strong>ANSSI BP-028</strong> (v1.2 &amp; v2.0 French &amp; English verbatim recommendations), <strong>CIS Distribution Independent Linux Benchmark (Section 5.2)</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. Click any rule ID or compliance status badge to filter findings in the Audit Report, or jump directly to the corresponding section in the Hardened Reference Template.</p>
+                <p>Complete reference catalog of all security standards enforced by <code>sudo-check</code>: <strong>ANSSI BP-028 v2.0</strong> (English verbatim recommendations with French translation), <strong>CIS Linux Benchmarks &mdash; Section 5.2 Configure Privilege Escalation</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. Click any rule ID or compliance status badge to filter findings in the Audit Report, or jump directly to the corresponding section in the Hardened Reference Template.</p>
             </div>
 
             <div class="controls-panel">
@@ -2793,7 +2793,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
                                 <span class="verbatim-label">Verbatim Standard Requirement</span>
                                 <blockquote class="verbatim-quote" cite="{{.CitationURL}}">{{.VerbatimQuote}}</blockquote>
                                 {{- if .VerbatimQuoteFR}}
-                                <blockquote class="verbatim-quote-fr" lang="fr" cite="{{.CitationURL}}"><strong>Texte original (ANSSI BP-028) :</strong> {{.VerbatimQuoteFR}}</blockquote>
+                                <blockquote class="verbatim-quote-fr" lang="fr" cite="{{.CitationURL}}"><strong>Traduction française (ANSSI BP-028) :</strong> {{.VerbatimQuoteFR}}</blockquote>
                                 {{- end}}
                             </div>
 
@@ -2836,7 +2836,7 @@ const htmlTemplateStr = `<!DOCTYPE html>
         <div id="panel-template" class="view-tabpanel" role="tabpanel" aria-labelledby="tab-template" hidden>
             <div class="template-intro-banner">
                 <h2>Hardened Reference Sudoers Baseline &amp; Implementation Patterns</h2>
-                <p>Production-ready reference templates implementing every recommendation from <strong>ANSSI BP-028 (R38–R42/R44)</strong>, <strong>CIS Benchmark (5.2.1–5.2.7)</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. The primary <code>/etc/sudoers</code> baseline below is continuously verified in unit tests to pass <code>sudo-check</code> with <strong>zero security findings</strong>.</p>
+                <p>Production-ready reference templates implementing every recommendation from <strong>ANSSI BP-028 v2.0 (R38–R44)</strong>, <strong>CIS Benchmark (5.2.1–5.2.7)</strong>, <strong>DISA STIG</strong>, and <strong>MITRE ATT&amp;CK (T1548.003)</strong>. The primary <code>/etc/sudoers</code> baseline below is continuously verified in unit tests to pass <code>sudo-check</code> with <strong>zero security findings</strong>.</p>
             </div>
 
             <div class="template-quick-nav">

@@ -384,7 +384,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Add 'Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"' to the sudoers file.",
 			RemediationCode: fmt.Sprintf("Defaults secure_path=%q", defaultSafeSecurePath),
-			Compliance:      []string{"ANSSI-BP-028", "CIS-5.2"},
+			Compliance:      []string{},
 		})
 	} else {
 		fCtx, fLine := globalState.resolveLoc("secure_path", globalFile, globalLine)
@@ -399,7 +399,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 				Line:            fLine,
 				Remediation:     "Ensure secure_path has a set of safe directories: 'Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"'",
 				RemediationCode: fmt.Sprintf("Defaults secure_path=%q", defaultSafeSecurePath),
-				Compliance:      []string{"ANSSI-BP-028", "CIS-5.2"},
+				Compliance:      []string{},
 			})
 		} else {
 			parts := strings.Split(securePath, ":")
@@ -414,7 +414,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 						Line:            fLine,
 						Remediation:     "Only specify absolute paths in secure_path.",
 						RemediationCode: fmt.Sprintf("Defaults secure_path=%q", sanitizeSecurePath(securePath)),
-						Compliance:      []string{"ANSSI-BP-028", "CIS-5.2"},
+						Compliance:      []string{},
 					})
 					break
 				}
@@ -460,7 +460,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Remove 'Defaults visiblepw' or explicitly set 'Defaults !visiblepw'.",
 			RemediationCode: "Defaults !visiblepw",
-			Compliance:      []string{"ANSSI-BP-028"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -476,7 +476,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Remove 'Defaults pwfeedback' or explicitly set 'Defaults !pwfeedback' (visual feedback is disabled by default).",
 			RemediationCode: "Defaults !pwfeedback",
-			Compliance:      []string{"ANSSI-BP-028"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -573,7 +573,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Enable 'Defaults env_reset' globally in the sudoers file.",
 			RemediationCode: "Defaults env_reset",
-			Compliance:      []string{"ANSSI-BP-028 R39", "CIS-5.2"},
+			Compliance:      []string{"ANSSI-BP-028 R39"},
 		})
 	}
 
@@ -589,7 +589,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Remove 'Defaults !authenticate' and require authentication for privileged operations.",
 			RemediationCode: "Defaults authenticate",
-			Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4", "DISA-STIG"},
+			Compliance:      []string{"CIS-5.2.5", "DISA-STIG"},
 		})
 	}
 
@@ -605,7 +605,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Remove 'Defaults setenv' or explicitly set 'Defaults !setenv'.",
 			RemediationCode: "Defaults !setenv",
-			Compliance:      []string{"ANSSI-BP-028", "CIS-5.2"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -625,7 +625,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Ensure 'Defaults !sudoedit_follow' and 'Defaults sudoedit_checkdir' are enforced.",
 			RemediationCode: "Defaults !sudoedit_follow, sudoedit_checkdir",
-			Compliance:      []string{"ANSSI-BP-028"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -642,7 +642,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 				Line:            fLine,
 				Remediation:     "Set 'Defaults timestamp_timeout=5' (or 0 to always prompt) in the sudoers file.",
 				RemediationCode: "Defaults timestamp_timeout=5",
-				Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.6", "DISA-STIG"},
+				Compliance:      []string{"CIS-5.2.6", "DISA-STIG"},
 			})
 		}
 	}
@@ -656,9 +656,9 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 				Severity:        SeverityLow,
 				Context:         fCtx,
 				Line:            fLine,
-				Remediation:     "Set 'Defaults passwd_timeout=1' in the sudoers file as recommended by ANSSI BP-028.",
+				Remediation:     "Set 'Defaults passwd_timeout=1' in the sudoers file.",
 				RemediationCode: "Defaults passwd_timeout=1",
-				Compliance:      []string{"ANSSI-BP-028 R39"},
+				Compliance:      []string{},
 			})
 		}
 	}
@@ -673,7 +673,7 @@ func AuditDefaults(policy *SudoersPolicy) []Finding {
 			Line:            fLine,
 			Remediation:     "Set 'Defaults timestamp_type=tty' or 'Defaults timestamp_type=ppid' to isolate authentication tickets per session.",
 			RemediationCode: "Defaults timestamp_type=tty",
-			Compliance:      []string{"CIS-5.2.7", "DISA-STIG"},
+			Compliance:      []string{},
 		})
 	}
 
@@ -752,7 +752,7 @@ func checkEnvLists(state *defaultsState, scopeLabel string, defaultsDirective st
 			Line:            line,
 			Remediation:     "Remove dynamic library path, interpreter path, and shell/editor environment variables from 'env_keep' and 'env_check' in sudoers Defaults.",
 			RemediationCode: remCode,
-			Compliance:      []string{"ANSSI-BP-028 R39", "CIS-5.2"},
+			Compliance:      []string{},
 		})
 	}
 	return findings
@@ -787,7 +787,7 @@ func auditScopedDefaults(policy *SudoersPolicy) []Finding {
 				Line:            def.Line,
 				Remediation:     fmt.Sprintf("Remove '!authenticate' from Defaults for [%s].", scopeLabel),
 				RemediationCode: fmt.Sprintf("%s authenticate", directive),
-				Compliance:      []string{"ANSSI-BP-028", "CIS-5.2.4"},
+				Compliance:      []string{"CIS-5.2.5"},
 			})
 		}
 		if state.isFalse("env_reset") {

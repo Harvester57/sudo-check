@@ -18,6 +18,16 @@ evaluation semantics, SARIF rule descriptors, or cross-platform tests.
 - **System permission rules**: `SUDO-SYS-PERM-XXX` in `pkg/audit/rules_system.go`
 - **System CVE rules**: `CVE-YYYY-NNNNN` in `pkg/audit/rules_system.go`
 - Populate `Compliance` with applicable `ANSSI-BP-028` and `CIS` benchmark IDs.
+  When citing ANSSI BP-028, verify the exact recommendation number against the
+  official v2.0 English guide checked in at `docs/reference/linux_configuration-en-v2.pdf`
+  (sudo recommendations R38–R44 live in section 6.3.1 "Unix traditional model";
+  v1.2 R57–R64 map to v2.0 R38–R44 per Appendix C.3). Only cite a recommendation
+  the guide actually states: R38 dedicated sudo group, R39 Defaults guidelines
+  (`noexec`, `requiretty`, `use_pty`, `umask=0077`, `ignore_dot`, `env_reset`),
+  R40 non-root Runas targets, R41 limiting EXEC-requiring commands, R42 no negations,
+  R43 strict argument specifications (no `*` wildcards, `""` for zero arguments),
+  R44 editing via sudoedit. Do not attribute checks the guide does not mention
+  (e.g. secure_path, digest pinning, sudoedit_follow, timeouts) to ANSSI.
 - Always populate `RemediationCode` (`json:"remediation_code,omitempty"`) with a concrete, copy-pasteable `sudoers` configuration snippet or shell command(s) tailored to the finding's context (`User`, `Host`, `Runas`, `Command`, `Context`, or scoped `Defaults` binding). Keep prose explanations in `Remediation`, remediation commands/config in `RemediationCode`, and verification/exploit commands in `ExploitPoC`.
 
 ## 2. Follow Evaluation Invariants
