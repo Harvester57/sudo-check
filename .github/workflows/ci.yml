@@ -95,6 +95,15 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Enforce Coverage Floor
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          MIN_COVERAGE=85
+          TOTAL_COV=$(tail -n 1 coverage.txt | awk '{print $3}')
+          echo "Total coverage: ${TOTAL_COV} (minimum required: ${MIN_COVERAGE}%)"
+          awk -v total="${TOTAL_COV%\%}" -v min="${MIN_COVERAGE}" \
+            'BEGIN { if (total < min) { exit 1 } }'
+
       - name: Upload Coverage Report
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
