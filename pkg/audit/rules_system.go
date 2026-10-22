@@ -135,16 +135,19 @@ func AuditSudoVersion(verStr string) ([]Finding, error) {
 	}
 
 	// CVE-2021-3156 (Baron Samedit): heap buffer overflow
-	// Affected: 1.8.2 through 1.8.31p2, and 1.9.0 through 1.9.5p1
+	// Affected: 1.7.7 through 1.7.10p9, 1.8.2 through 1.8.31p2, and 1.9.0 through 1.9.5p1
+	v177 := SudoVersion{Major: 1, Minor: 7, Patch: 7, Pl: 0}
+	v1710p9 := SudoVersion{Major: 1, Minor: 7, Patch: 10, Pl: 9}
 	v182 := SudoVersion{Major: 1, Minor: 8, Patch: 2, Pl: 0}
 	v1831p2 := SudoVersion{Major: 1, Minor: 8, Patch: 31, Pl: 2}
 	v190 := SudoVersion{Major: 1, Minor: 9, Patch: 0, Pl: 0}
 	v195p1 := SudoVersion{Major: 1, Minor: 9, Patch: 5, Pl: 1}
 
+	isVulnerable17 := v.Compare(v177) >= 0 && v.Compare(v1710p9) <= 0
 	isVulnerable18 := v.Compare(v182) >= 0 && v.Compare(v1831p2) <= 0
 	isVulnerable19 := v.Compare(v190) >= 0 && v.Compare(v195p1) <= 0
 
-	if isVulnerable18 || isVulnerable19 {
+	if isVulnerable17 || isVulnerable18 || isVulnerable19 {
 		findings = append(findings, Finding{
 			ID:              "CVE-2021-3156",
 			Title:           "Baron Samedit Sudo Heap Buffer Overflow",
