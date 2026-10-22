@@ -1,0 +1,91 @@
+{
+  "policy_findings": [
+    {
+      "id": "SUDO-GTFO-001",
+      "title": "Dangerous Sudo Binary allowed: find (shell)",
+      "description": "The command 'find' is allowed — and can be used → to bypass sudo restrictions.",
+      "severity": "CRITICAL",
+      "user": "alice",
+      "host": "prod-db",
+      "runas": "root:root",
+      "command": "/usr/bin/find",
+      "context": "/etc/sudoers.d/alice",
+      "line": 42,
+      "remediation": "Review if 'find' requires elevated privileges.",
+      "remediation_code": "# Apply NOEXEC tag in /etc/sudoers.d/alice:\nalice prod-db = (root:root) NOEXEC: /usr/bin/find /var/log -maxdepth 1",
+      "exploit_poc": "sudo find . -exec /bin/sh \\; -quit",
+      "compliance": [
+        "ANSSI-BP-028-R40"
+      ]
+    },
+    {
+      "id": "SUDO-DEF-001",
+      "title": "Missing or Empty secure_path",
+      "description": "The sudoers policy does not define a 'secure_path'.",
+      "severity": "HIGH",
+      "remediation": "Add Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\" to sudoers.",
+      "compliance": [
+        "CIS-5.2.4"
+      ]
+    },
+    {
+      "id": "SUDO-DEF-009",
+      "title": "Missing umask Configuration",
+      "description": "The global 'umask' option is not configured.",
+      "severity": "MEDIUM",
+      "line": 12,
+      "remediation": "Add 'Defaults umask=0077' to the sudoers file.",
+      "compliance": [
+        "ANSSI-BP-028-R38"
+      ]
+    },
+    {
+      "id": "SUDO-GTFO-003",
+      "title": "Mitigated Dangerous Sudo Binary: vim (shell) with an extremely long finding title that exceeds one hundred and twenty millimeters in PDF header rendering width",
+      "description": "Mitigated with NOEXEC — test long title and legacy exploit block.",
+      "severity": "LOW",
+      "user": "bob",
+      "host": "ALL",
+      "runas": "ALL",
+      "command": "/usr/bin/vim",
+      "context": "/etc/sudoers",
+      "remediation": "Remove vim or use sudoedit. Example exploit command:\nsudo vim -c ':!/bin/sh'"
+    },
+    {
+      "id": "SUDO-XSS-TEST",
+      "title": "XSS Test \u003cscript\u003ealert(1)\u003c/script\u003e",
+      "description": "Quotes \" and UTF-8 characters é — → ≥ ≤.",
+      "severity": "INFO",
+      "remediation": "Review configuration."
+    }
+  ],
+  "system_findings": [
+    {
+      "id": "SUDO-SYS-PERM-002",
+      "title": "Sudoers Writable by Group",
+      "description": "The sudoers file '/etc/sudoers' has group write permissions: -rw-rw-r--.",
+      "severity": "CRITICAL",
+      "context": "/etc/sudoers",
+      "line": 1,
+      "remediation": "Run 'chmod 0440 /etc/sudoers' to restrict write access.",
+      "exploit_poc": "echo 'ALL ALL=(ALL) NOPASSWD: ALL' \u003e\u003e /etc/sudoers",
+      "compliance": [
+        "CIS-5.2.3"
+      ]
+    },
+    {
+      "id": "SUDO-SYS-PERM-004",
+      "title": "Sudoers World Readable",
+      "description": "The sudoers file '/etc/sudoers' is world-readable.",
+      "severity": "HIGH",
+      "context": "/etc/sudoers",
+      "remediation": "Upgrade permissions on /etc/sudoers.",
+      "compliance": [
+        "CIS-5.2.3",
+        "ANSSI-BP-028-R39"
+      ]
+    }
+  ],
+  "sudo_version": "1.9.12",
+  "hostname": "test-host"
+}

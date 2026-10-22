@@ -1,0 +1,219 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "sudo-check",
+          "version": "v0.0.0-golden",
+          "informationUri": "https://github.com/Harvester57/sudo-audit",
+          "rules": [
+            {
+              "id": "SUDO-SYS-PERM-004",
+              "shortDescription": {
+                "text": "Sudoers World Readable"
+              },
+              "properties": {
+                "security-severity": "7.5",
+                "tags": [
+                  "CIS-5.2.3",
+                  "ANSSI-BP-028-R39"
+                ]
+              }
+            },
+            {
+              "id": "SUDO-SYS-PERM-002",
+              "shortDescription": {
+                "text": "Sudoers Writable by Group"
+              },
+              "properties": {
+                "security-severity": "9.0",
+                "tags": [
+                  "CIS-5.2.3"
+                ]
+              }
+            },
+            {
+              "id": "SUDO-DEF-009",
+              "shortDescription": {
+                "text": "Missing or Weak umask Configuration"
+              },
+              "properties": {
+                "security-severity": "5.0",
+                "tags": [
+                  "ANSSI-BP-028-R38"
+                ]
+              }
+            },
+            {
+              "id": "SUDO-DEF-001",
+              "shortDescription": {
+                "text": "Missing or Empty secure_path Configuration"
+              },
+              "properties": {
+                "security-severity": "7.5",
+                "tags": [
+                  "CIS-5.2.4"
+                ]
+              }
+            },
+            {
+              "id": "SUDO-GTFO-001",
+              "shortDescription": {
+                "text": "Permitted Binary in GTFObins Catalog"
+              },
+              "properties": {
+                "security-severity": "9.0",
+                "tags": [
+                  "ANSSI-BP-028-R40"
+                ]
+              }
+            },
+            {
+              "id": "SUDO-GTFO-003",
+              "shortDescription": {
+                "text": "Mitigated Permitted Binary in GTFObins Catalog"
+              },
+              "properties": {
+                "security-severity": "2.5"
+              }
+            },
+            {
+              "id": "SUDO-XSS-TEST",
+              "shortDescription": {
+                "text": "XSS Test \u003cscript\u003ealert(1)\u003c/script\u003e"
+              },
+              "properties": {
+                "security-severity": "1.0"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "SUDO-SYS-PERM-004",
+          "message": {
+            "text": "The sudoers file '/etc/sudoers' is world-readable.\nRemediation: Upgrade permissions on /etc/sudoers."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/etc/sudoers"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-SYS-PERM-002",
+          "message": {
+            "text": "The sudoers file '/etc/sudoers' has group write permissions: -rw-rw-r--.\nRemediation: Run 'chmod 0440 /etc/sudoers' to restrict write access.\nExample Fix:\nchmod 0440 /etc/sudoers"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/etc/sudoers"
+                },
+                "region": {
+                  "startLine": 1
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-DEF-009",
+          "message": {
+            "text": "The global 'umask' option is not configured.\nRemediation: Add 'Defaults umask=0077' to the sudoers file.\nExample Fix:\nDefaults umask=0077"
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "file:///etc/sudoers"
+                },
+                "region": {
+                  "startLine": 12
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-DEF-001",
+          "message": {
+            "text": "The sudoers policy does not define a 'secure_path'.\nRemediation: Add Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\" to sudoers.\nExample Fix:\nDefaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\""
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "file:///etc/sudoers"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-GTFO-001",
+          "message": {
+            "text": "The command 'find' is allowed — and can be used → to bypass sudo restrictions.\nRemediation: Review if 'find' requires elevated privileges.\nExample Fix:\n# Apply NOEXEC tag in /etc/sudoers.d/alice:\nalice prod-db = (root:root) NOEXEC: /usr/bin/find /var/log -maxdepth 1"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/etc/sudoers.d/alice"
+                },
+                "region": {
+                  "startLine": 42
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-GTFO-003",
+          "message": {
+            "text": "Mitigated with NOEXEC — test long title and legacy exploit block.\nRemediation: Remove vim or use sudoedit."
+          },
+          "level": "warning",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "/etc/sudoers"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "SUDO-XSS-TEST",
+          "message": {
+            "text": "Quotes \" and UTF-8 characters é — → ≥ ≤.\nRemediation: Review configuration."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "file:///etc/sudoers"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

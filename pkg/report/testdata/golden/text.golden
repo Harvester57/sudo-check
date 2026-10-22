@@ -1,0 +1,75 @@
+=== SUDOERS SECURITY AUDIT REPORT ===
+
+Target Hostname: test-host
+Sudo Version:    1.9.12
+
+--- System Vulnerability Findings (2) ---
+[CRITICAL] SUDO-SYS-PERM-002: Sudoers Writable by Group
+  Location:    /etc/sudoers:1
+  Compliance:  CIS-5.2.3
+  Description: The sudoers file '/etc/sudoers' has group write permissions: -rw-rw-r--.
+  Remediation: Run 'chmod 0440 /etc/sudoers' to restrict write access.
+  Example Fix:
+    chmod 0440 /etc/sudoers
+  Reference:
+    echo 'ALL ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+
+[HIGH] SUDO-SYS-PERM-004: Sudoers World Readable
+  Location:    /etc/sudoers
+  Compliance:  CIS-5.2.3, ANSSI-BP-028-R39
+  Description: The sudoers file '/etc/sudoers' is world-readable.
+  Remediation: Upgrade permissions on /etc/sudoers.
+
+--- Sudoers Policy Findings (5) ---
+[CRITICAL] SUDO-GTFO-001: Dangerous Sudo Binary allowed: find (shell)
+  User/Group:  alice
+  Host:        prod-db
+  RunAs:       root:root
+  Command:     /usr/bin/find
+  Location:    /etc/sudoers.d/alice:42
+  Compliance:  ANSSI-BP-028-R40
+  Description: The command 'find' is allowed — and can be used → to bypass sudo restrictions.
+  Remediation: Review if 'find' requires elevated privileges.
+  Example Fix:
+    # Apply NOEXEC tag in /etc/sudoers.d/alice:
+    alice prod-db = (root:root) NOEXEC: /usr/bin/find /var/log -maxdepth 1
+  Reference:
+    sudo find . -exec /bin/sh \; -quit
+
+[HIGH] SUDO-DEF-001: Missing or Empty secure_path
+  Compliance:  CIS-5.2.4
+  Description: The sudoers policy does not define a 'secure_path'.
+  Remediation: Add Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" to sudoers.
+  Example Fix:
+    Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+[MEDIUM] SUDO-DEF-009: Missing umask Configuration
+  Location:    line 12
+  Compliance:  ANSSI-BP-028-R38
+  Description: The global 'umask' option is not configured.
+  Remediation: Add 'Defaults umask=0077' to the sudoers file.
+  Example Fix:
+    Defaults umask=0077
+
+[LOW] SUDO-GTFO-003: Mitigated Dangerous Sudo Binary: vim (shell) with an extremely long finding title that exceeds one hundred and twenty millimeters in PDF header rendering width
+  User/Group:  bob
+  Host:        ALL
+  RunAs:       ALL
+  Command:     /usr/bin/vim
+  Location:    /etc/sudoers
+  Description: Mitigated with NOEXEC — test long title and legacy exploit block.
+  Remediation: Remove vim or use sudoedit.
+  Reference:
+    sudo vim -c ':!/bin/sh'
+
+[INFO] SUDO-XSS-TEST: XSS Test <script>alert(1)</script>
+  Description: Quotes " and UTF-8 characters é — → ≥ ≤.
+  Remediation: Review configuration.
+
+--- Summary of Findings ---
+  CRITICAL: 2
+  HIGH:     2
+  MEDIUM:   1
+  LOW:      1
+  INFO:     1
+
