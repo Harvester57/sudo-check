@@ -29,7 +29,24 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: 'go.mod'
-          cache: true
+          # Disabled: setup-go snapshots GOCACHE keyed on go.sum, which would
+          # restore a stale fuzz corpus and shadow the explicit corpus cache
+          # below. The fuzz job builds a single package; a cold build is cheap.
+          cache: false
+
+      # Accumulate the generated fuzz corpus across runs: restore the most
+      # recent corpus before fuzzing, save the grown corpus afterwards (the
+      # cache post step runs even when the fuzz step fails, so inputs found
+      # before a crash are kept). Go never prunes corpus entries; growth tapers
+      # as coverage saturates, but if baseline gathering ever becomes slow,
+      # bump the key prefix below (e.g. ...-v2-) to reset the corpus.
+      - name: Restore Accumulated Fuzz Corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-corpus-FuzzParseString-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-FuzzParseString-
 
       # Fuzzing mode runs the seed corpus first, then generates novel inputs
       # for 5 minutes. On a crash, the failing input is written to
