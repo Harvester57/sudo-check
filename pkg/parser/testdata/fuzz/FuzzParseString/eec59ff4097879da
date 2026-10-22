@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults \"\xa3\v\xd1")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("A_a 0=0\nA_a 0=0\nCmnd_Alias 0=")

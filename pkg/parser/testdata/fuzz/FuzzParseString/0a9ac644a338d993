@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 \xd9\x04\x17\xac\x10\xde\t\xb0=0")

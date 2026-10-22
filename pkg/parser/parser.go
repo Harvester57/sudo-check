@@ -641,7 +641,12 @@ func readLeadingCommaList(s string) ([]string, string, error) {
 		for i < len(s) {
 			ch := s[i]
 			if ch == '\\' {
-				i += 2
+				// A trailing backslash consumes only itself to avoid
+				// slicing past the end of the input.
+				i++
+				if i < len(s) {
+					i++
+				}
 				continue
 			}
 			if ch == '"' {
@@ -2105,7 +2110,12 @@ func consumeTagOrCmndOption(s string) (token string, rest string, ok bool) {
 			for i < len(s) {
 				ch := s[i]
 				if ch == '\\' {
-					i += 2
+					// A trailing backslash consumes only itself to avoid
+					// slicing past the end of the input.
+					i++
+					if i < len(s) {
+						i++
+					}
 					continue
 				}
 				if ch == '"' {

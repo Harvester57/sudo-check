@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults authenticate\n0 AAAAAAAAA=0,Aa0,Aa0,00000")

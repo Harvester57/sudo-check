@@ -1,0 +1,2 @@
+go test fuzz v1
+string("User_Alias A=\"0\" \nUser_Alias A=\"0\"\nUser_Alias A=\"\\0\\0\"\nUser_Alias A=\"%:\\\"\\\"\"\nUser_Alias A=\"%:0\"\nUser_Alias A=\"%:\\0\" \nRunas_Alias A=\"0\"\nRunas_Alias A=\"\\\"\"\nRunas_Alias A=\"0\"\nRunas_Alias A=\"\\\"\" \nDefaults@\"\\0\"\"\\\"\" 0\nDefaults:\"%:\"\"\"\"\"\"\" \"\"\n\"0\" \"0\"=(\"0000\")0\n\"0\" \"0\"=(\"0000\")")

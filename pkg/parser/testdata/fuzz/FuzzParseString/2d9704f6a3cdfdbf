@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults!1 0\nDefaults!\"\" 0\nDefaults!\"\" 00\n\"0\" A00=000")

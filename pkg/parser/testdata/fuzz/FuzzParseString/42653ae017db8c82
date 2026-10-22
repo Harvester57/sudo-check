@@ -1,0 +1,2 @@
+go test fuzz v1
+string("User_Alias A=0\nUser_Alias A=0,0,0\nUser_Alias A=0,0,00\nRu,00000000 0=000")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 \xbe=0\xbe\xbe\xbe0\xbe")

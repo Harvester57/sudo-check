@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults!0 env_reset\nDefaults!0 env_reset")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=A00000A\xc4: 00000000000000000000000000\nDefaults!0 00")

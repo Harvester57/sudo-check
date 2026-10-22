@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0\xfb\xa0 0=\x87\"\xfb\xa0\xcf")

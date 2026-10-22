@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults env_keep=\"00000000000aaaaa EDITOR VISUAL\"")

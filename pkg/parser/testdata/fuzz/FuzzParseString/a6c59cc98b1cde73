@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=ROLE=0 TYPE=0 ALL\n0 0=0\n0 0=PRIVS=\"\" LIMITPRIVS=0 ALL")

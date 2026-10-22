@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults \"\x80\x89\xd20\x8f")

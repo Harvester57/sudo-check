@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults env_keep=\"SUDO_EDITOR EDITOR 0000\"")

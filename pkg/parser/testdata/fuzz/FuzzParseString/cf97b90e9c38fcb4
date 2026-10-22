@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Cmnd_Alias A=0\n0 0=()A:\nCmnd_Alias B=0\n0 0=(:0)PASSWD:0\n0 0=()PASSWD:0,0\n0 0=()PASSWD:0")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Aa000000 00000=0000,aaaaaaaa00aaaaaaa=0,aaaaaa0aaaaaaaaaaaaa=0")

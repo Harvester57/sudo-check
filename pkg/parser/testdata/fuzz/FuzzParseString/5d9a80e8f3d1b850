@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults 0=,0000000000=\n0 0=CHROOT=00000000")

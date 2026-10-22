@@ -372,6 +372,7 @@ func TestParseErrors(t *testing.T) {
 		{"HostAliasEmptyItem", "Host_Alias HADM = srv1, \n"},
 		{"CmndAliasEmptyItem", "Cmnd_Alias CADM = /bin/ls, \n"},
 		{"UserSpecMissingEquals", "alice ALL /bin/ls\n"},
+		{"UserSpecTrailingBackslashInUserList", "00\\ =0\n"},
 		{"UserSpecMissingHostList", "alice = /bin/ls\n"},
 		{"UserSpecEmptyRHS", "alice ALL = \n"},
 		{"UserSpecEmptyRunasGroup", "alice ALL = (root : g1, ) /bin/ls\n"},

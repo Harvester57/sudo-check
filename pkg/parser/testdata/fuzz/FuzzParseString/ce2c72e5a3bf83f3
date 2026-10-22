@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=A0\xcb\xcbAAAA: N!EXEC0 SETENV0 0000000000000,0\"")

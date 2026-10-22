@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=(0)0\xff 0000000000 0000000000000000000000000 0\n0 0=(0)PASSWD:chown ,chown \n0 0=(0)PASSWD:chmod ,chmod \n0 0=(0)PASSWD:0\xd600/chown 00 000000000000 0000000000,chown \n0 0=(0)PASSWD:chmod ,chmod")

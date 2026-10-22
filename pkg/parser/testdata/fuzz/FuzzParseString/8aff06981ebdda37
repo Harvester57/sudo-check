@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Aa\xb6\xb600 AAA=0")
