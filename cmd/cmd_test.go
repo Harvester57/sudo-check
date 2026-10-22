@@ -207,9 +207,7 @@ root ALL=(ALL:ALL) ALL
 		t.Fatalf("failed to write sudoers: %v", err)
 	}
 
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", dir)
-	defer os.Setenv("PATH", origPath)
 
 	outDir := filepath.Join(dir, "sys-reports")
 	rootCmd.SetArgs([]string{

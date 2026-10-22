@@ -33,9 +33,7 @@ func TestNewWrapper_CustomPathValid(t *testing.T) {
 }
 
 func TestNewWrapper_NotFoundInEmptyPath(t *testing.T) {
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", t.TempDir())
-	defer os.Setenv("PATH", origPath)
 
 	w, err := NewWrapper("")
 	if runtime.GOOS == "windows" {
@@ -55,9 +53,7 @@ func TestNewWrapper_FoundInPath(t *testing.T) {
 	if err := os.WriteFile(binPath, []byte("@echo off\r\n"), 0755); err != nil {
 		t.Fatalf("failed to write mock binary: %v", err)
 	}
-	origPath := os.Getenv("PATH")
 	t.Setenv("PATH", dir)
-	defer os.Setenv("PATH", origPath)
 
 	w, err := NewWrapper("")
 	if err != nil {

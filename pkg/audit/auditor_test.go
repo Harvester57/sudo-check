@@ -539,8 +539,13 @@ func TestAuditCommands(t *testing.T) {
 
 	t.Run("CircularAliasDepthLimit", func(t *testing.T) {
 		policy := loadTestPolicy(t, "circular_alias_policy.json")
-		findings := AuditCommands(policy, gtfoClient)
-		_ = findings
+		// Alias resolution must terminate on circular definitions instead of recursing forever.
+		resolved := resolveCommands(policy.UserSpecs[0].CmndSpecs[0].Commands[0], policy)
+		if len(resolved) == 0 || len(resolved) > maxResolveDepth {
+			t.Errorf("Expected bounded non-empty resolution of circular command alias, got %d member(s): %+v", len(resolved), resolved)
+		}
+		// The full command audit must complete without panicking on the circular policy.
+		_ = AuditCommands(policy, gtfoClient)
 	})
 
 	t.Run("EmptyPolicy", func(t *testing.T) {
