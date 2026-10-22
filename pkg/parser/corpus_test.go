@@ -38,6 +38,7 @@ func TestRealWorldCorpusDifferentialAndStress(t *testing.T) {
 			testName := cat + "/" + entry.Name()
 
 			t.Run(testName, func(t *testing.T) {
+				t.Parallel()
 				rawBytes, err := os.ReadFile(filePath)
 				if err != nil {
 					t.Fatalf("Failed to read %s: %v", filePath, err)
@@ -126,6 +127,7 @@ func TestInvalidUpstreamCorpus(t *testing.T) {
 		}
 		filePath := filepath.Join(invalidDir, entry.Name())
 		t.Run(entry.Name(), func(t *testing.T) {
+			t.Parallel()
 			rawBytes, err := os.ReadFile(filePath)
 			if err != nil {
 				t.Fatalf("Failed to read %s: %v", filePath, err)

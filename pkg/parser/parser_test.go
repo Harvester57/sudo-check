@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sudo-check/pkg/audit"
 	"sudo-check/pkg/gtfobins"
+	"sync"
 	"testing"
 )
 
@@ -396,35 +397,44 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
+// cvtsudoersOracleConfig captures how the cvtsudoers oracle binary is invoked.
+type cvtsudoersOracleConfig struct {
+	resolved bool
+	useWSL   bool
+	binPath  string
+}
+
 var (
-	cvtOnce     bool
-	cvtResolved bool
-	cvtUseWSL   bool
-	cvtBinPath  string
+	cvtResolveOnce sync.Once
+	cvtOracle      cvtsudoersOracleConfig
 )
+
+// resolveCvtsudoersOracle locates cvtsudoers (directly or via WSL) exactly once,
+// safe for concurrent parallel subtests.
+func resolveCvtsudoersOracle() {
+	cvtResolveOnce.Do(func() {
+		if path, err := exec.LookPath("cvtsudoers"); err == nil {
+			cvtOracle = cvtsudoersOracleConfig{resolved: true, binPath: path}
+			return
+		}
+		if runtime.GOOS == "windows" {
+			if wslPath, err := exec.LookPath("wsl"); err == nil {
+				checkCmd := exec.Command(wslPath, "/usr/bin/cvtsudoers", "--version")
+				if err := checkCmd.Run(); err == nil {
+					cvtOracle = cvtsudoersOracleConfig{resolved: true, useWSL: true, binPath: wslPath}
+				}
+			}
+		}
+	})
+}
 
 // runCvtsudoersOracle invokes local cvtsudoers or wsl /usr/bin/cvtsudoers -f json on input.
 func runCvtsudoersOracle(t *testing.T, sudoersInput string) *audit.SudoersPolicy {
 	t.Helper()
 
-	if !cvtOnce {
-		cvtOnce = true
-		if path, err := exec.LookPath("cvtsudoers"); err == nil {
-			cvtResolved = true
-			cvtBinPath = path
-		} else if runtime.GOOS == "windows" {
-			if wslPath, err := exec.LookPath("wsl"); err == nil {
-				checkCmd := exec.Command(wslPath, "/usr/bin/cvtsudoers", "--version")
-				if err := checkCmd.Run(); err == nil {
-					cvtResolved = true
-					cvtUseWSL = true
-					cvtBinPath = wslPath
-				}
-			}
-		}
-	}
+	resolveCvtsudoersOracle()
 
-	if !cvtResolved {
+	if !cvtOracle.resolved {
 		if os.Getenv("SUDO_CHECK_REQUIRE_ORACLE") == "1" {
 			t.Fatalf("cvtsudoers not available locally or via WSL, but SUDO_CHECK_REQUIRE_ORACLE=1 is set")
 		}
@@ -432,10 +442,10 @@ func runCvtsudoersOracle(t *testing.T, sudoersInput string) *audit.SudoersPolicy
 	}
 
 	var cmd *exec.Cmd
-	if cvtUseWSL {
-		cmd = exec.Command(cvtBinPath, "/usr/bin/cvtsudoers", "-f", "json")
+	if cvtOracle.useWSL {
+		cmd = exec.Command(cvtOracle.binPath, "/usr/bin/cvtsudoers", "-f", "json")
 	} else {
-		cmd = exec.Command(cvtBinPath, "-f", "json")
+		cmd = exec.Command(cvtOracle.binPath, "-f", "json")
 	}
 
 	normalizedInput := strings.ReplaceAll(sudoersInput, "\r\n", "\n")
@@ -637,6 +647,7 @@ regular_user ALL = /usr/bin/find /var/log -type f
 
 	for _, tc := range policies {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cvtPolicy := runCvtsudoersOracle(t, tc.sudoers)
 			nativePolicy, err := ParseString(tc.sudoers)
 			if err != nil {
