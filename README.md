@@ -57,7 +57,7 @@ It scans raw `sudoers` configuration files (including `#include`/`@include` and 
 Prebuilt static binaries (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`, `windows/amd64`), `SHA256SUMS`, and CycloneDX SBOMs are available on the [GitHub Releases](https://github.com/Harvester57/sudo-check/releases) page.
 
 ### Build from Source
-Requires [Go 1.26](https://go.dev/) or later:
+Requires [Go 1.27](https://go.dev/) or later:
 ```bash
 git clone https://github.com/Harvester57/sudo-check.git
 cd sudo-check

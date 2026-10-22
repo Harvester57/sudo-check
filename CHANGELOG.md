@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Go Toolchain**: Bumped minimum Go version in `go.mod` to `1.27.3` to resolve GO-2026-6809 (distrust of compromised intermediate certificates in `crypto/x509`, fixed in Go 1.26.10) and updated all dependencies (`github.com/spf13/pflag` to `v1.0.10`).
+
 ### Added
 - **SELinux Context Elevation Check (`SUDO-CMD-013`)**: New `INFO`-severity command rule implementing DISA STIG V-272484 / RHEL-08-010455 ("RHEL 8 must elevate the SELinux context when an administrator calls the sudo command"). Flags administrator-grade rules (any `ALL` command or `ALL` runas target) that do not specify both the `TYPE=sysadm_t` and `ROLE=sysadm_r` options, including partially specified elevations, with a copy-pasteable remediation directive. The DISA STIG reference catalog gained a second requirement (`stig-selinux-context`) with the verbatim STIG check and fix text, and the hardened reference template documents the required directive. On hosts not running SELinux the finding is informational and does not affect default `--fail-on` exit codes.
 

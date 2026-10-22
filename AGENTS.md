@@ -41,7 +41,7 @@ Welcome! This repository contains `sudo-check`, a security audit utility for sud
 ## 2. Development Guidelines
 
 ### Language & Compiler version
-- Target Go version: **Go 1.26** (specified in [go.mod](go.mod)). Use standard Go formatting (`go fmt`).
+- Target Go version: **Go 1.27** (specified in [go.mod](go.mod)). Use standard Go formatting (`go fmt`).
 
 ### Cross-Compilation & Build Tags
 - Target system audits check the owner of `/etc/sudoers` which relies on Unix syscalls.
