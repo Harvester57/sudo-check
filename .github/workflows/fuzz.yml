@@ -15,9 +15,22 @@ permissions:
 
 jobs:
   fuzz:
-    name: Fuzz ParseString
+    name: Fuzz ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    strategy:
+      # A crasher in one target must not cancel the other targets mid-run;
+      # artifacts from every failing leg are preserved.
+      fail-fast: false
+      matrix:
+        include:
+          - target: FuzzParseString
+            package: ./pkg/parser
+          - target: FuzzAuditJSONPolicy
+            package: ./pkg/audit
+          - target: FuzzParseSudoVersion
+            package: ./pkg/audit
 
     steps:
       - name: Checkout Source Code
@@ -39,28 +52,30 @@ jobs:
       # cache post step runs even when the fuzz step fails, so inputs found
       # before a crash are kept). Go never prunes corpus entries; growth tapers
       # as coverage saturates, but if baseline gathering ever becomes slow,
-      # bump the key prefix below (e.g. ...-v2-) to reset the corpus.
+      # bump the key prefix below (e.g. ...-v2-) to reset the corpus. Each
+      # matrix target keeps its own corpus; Go namespaces the cache by package
+      # and target underneath the shared path, so legs never collide.
       - name: Restore Accumulated Fuzz Corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build/fuzz
-          key: fuzz-corpus-FuzzParseString-${{ github.run_id }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
           restore-keys: |
-            fuzz-corpus-FuzzParseString-
+            fuzz-corpus-${{ matrix.target }}-
 
       # Fuzzing mode runs the seed corpus first, then generates novel inputs
       # for 5 minutes. On a crash, the failing input is written to
-      # pkg/parser/testdata/fuzz/FuzzParseString/ so it becomes a permanent
-      # regression seed once committed.
-      - name: Run FuzzParseString
-        run: go test -run='^$' -fuzz=FuzzParseString -fuzztime=5m ./pkg/parser
+      # <package>/testdata/fuzz/<target>/ so it becomes a permanent regression
+      # seed once committed.
+      - name: Run ${{ matrix.target }}
+        run: go test -run='^$' -fuzz=${{ matrix.target }} -fuzztime=5m ${{ matrix.package }}
 
       - name: Collect Failing Inputs and Generated Corpus
         if: failure()
         run: |
           mkdir -p fuzz-artifacts
-          if [ -d pkg/parser/testdata/fuzz ]; then
-            cp -r pkg/parser/testdata/fuzz fuzz-artifacts/crashers
+          if [ -d ${{ matrix.package }}/testdata/fuzz ]; then
+            cp -r ${{ matrix.package }}/testdata/fuzz fuzz-artifacts/crashers
           fi
           FUZZ_CACHE="$(go env GOCACHE)/fuzz"
           if [ -d "$FUZZ_CACHE" ]; then
@@ -72,6 +87,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: fuzz-artifacts
+          name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz-artifacts/
           retention-days: 30

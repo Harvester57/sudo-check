@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"DefAults\":[{\"Binding\":[{}]}],\"User_SpeCs\":[{\"Cmnd_SpeCs\":[{\"CommAnds\":[{\"CommAnd\":\"00000000\xb800000000000000000000000\"}]}]}]}")

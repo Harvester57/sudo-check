@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"User_Specs\":[{\"User_List\":[],\"_0\":[{\"00000\":\"000\"}],\"Cmnd_Specs\":[{\"RunAsUsers\":[],\"RunAsGroups\":[]},{\"RunAsUsers\":[]}]}]}")

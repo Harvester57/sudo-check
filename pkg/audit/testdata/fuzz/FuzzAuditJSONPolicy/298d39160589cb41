@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"CommAnd_AliAses\":{\"\":[{\"CommAnd\":\"\xff\xff\xff\xff\"}]}}")

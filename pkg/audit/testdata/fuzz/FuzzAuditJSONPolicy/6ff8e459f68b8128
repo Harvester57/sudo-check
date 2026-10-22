@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"User_Specs\":[{\"User_List\":[{\"username\":\"alice\"}],\"Host_List\":[{\"hostname\":\"ALL\"}]\x10\x00Cmnd_Specs\":[{\"Commands\":[{\"command\":\"^/usr/bin/journalctl.*$\"}]}]}]}")

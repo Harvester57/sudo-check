@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"User_Specs\":[{\"User_List\":[{\"userid\":0},{\"userid\":-1},{\"usergroup\":\"wheel\",\"negated\"ser_:true}],\"Host_List\":[{\"hostname\":\"ALL\"}],\"Cmnd_Specs\":[{\"Commands\":[{\"command\":\"/bin/ls\"}]}]}]}")

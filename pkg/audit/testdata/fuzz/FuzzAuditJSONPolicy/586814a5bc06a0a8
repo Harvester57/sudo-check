@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Comms\":_Aliases\":{\"CMDS\":[{\"commandalias\":\"/bin/ls\"}]},\"User_Specand[{\"User_List\":[{\"username\":\"alice\"}],\"Host_List\":[{\"hostname\":\"ALL\"}],\"Cmnd_Specs\":[{\"Commands\":[{\"cmndalias\":\"CMDS\"}]}]}]}")

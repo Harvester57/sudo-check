@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"User_Specs\":[{\"Cmnd_Specs\":[{\"runasgroups\":[{\"0aaaaaa\xe7\xe7\xe7\xe7\xe7\xe7\xe7aa\":\"\"}]}]}]}")
