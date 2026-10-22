@@ -1,0 +1,60 @@
+name: Scheduled Fuzzing
+
+on:
+  schedule:
+    # Nightly at 03:00 UTC.
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: scheduled-fuzzing
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ParseString
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      # Fuzzing mode runs the seed corpus first, then generates novel inputs
+      # for 5 minutes. On a crash, the failing input is written to
+      # pkg/parser/testdata/fuzz/FuzzParseString/ so it becomes a permanent
+      # regression seed once committed.
+      - name: Run FuzzParseString
+        run: go test -run='^$' -fuzz=FuzzParseString -fuzztime=5m ./pkg/parser
+
+      - name: Collect Failing Inputs and Generated Corpus
+        if: failure()
+        run: |
+          mkdir -p fuzz-artifacts
+          if [ -d pkg/parser/testdata/fuzz ]; then
+            cp -r pkg/parser/testdata/fuzz fuzz-artifacts/crashers
+          fi
+          FUZZ_CACHE="$(go env GOCACHE)/fuzz"
+          if [ -d "$FUZZ_CACHE" ]; then
+            mkdir -p fuzz-artifacts/generated-corpus
+            cp -r "$FUZZ_CACHE"/. fuzz-artifacts/generated-corpus/
+          fi
+
+      - name: Upload Fuzz Artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz-artifacts/
+          retention-days: 30
