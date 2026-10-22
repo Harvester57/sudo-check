@@ -1,0 +1,2 @@
+go test fuzz v1
+string("#include /0/00\xaf0\xa70\xf30\xc50\xa3\x89/\xbc\xf6/0")

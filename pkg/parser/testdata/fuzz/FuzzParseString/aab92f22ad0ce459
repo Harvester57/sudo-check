@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0000 A0=sudoedit & 00/0000")

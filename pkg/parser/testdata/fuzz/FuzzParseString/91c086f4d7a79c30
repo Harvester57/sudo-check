@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=shA224:\xe8\xbe\xe1\x94\xe7\xe0\xa10\xb0 0")

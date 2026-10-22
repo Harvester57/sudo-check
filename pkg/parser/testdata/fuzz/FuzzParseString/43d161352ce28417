@@ -1,0 +1,2 @@
+go test fuzz v1
+string("User_Alias A=0\nDefaults:A_ 0\nA\xe900 A_A=Aa0\nDefaults@AAA_AAA 0\nCmnd_Alias A=0\nDefaults!B 0")

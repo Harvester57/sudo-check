@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Cmnd_Alias KILL=0,A0000000000000a,KILL,0\n0 0=A000000000a\n0 0=KILL\n0 0=0")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=0\"00 \xe5\xa60*\xe1\x9c0")

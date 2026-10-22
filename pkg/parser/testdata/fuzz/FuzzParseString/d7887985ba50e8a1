@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=0ЊԄ\"\u0c9100\n0")

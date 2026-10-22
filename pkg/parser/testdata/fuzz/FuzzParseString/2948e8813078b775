@@ -1,0 +1,2 @@
+go test fuzz v1
+string("!!!!!!!!!!!!!!\x88\x99\xaf 0=0")

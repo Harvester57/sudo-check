@@ -1,0 +1,2 @@
+go test fuzz v1
+string("0 0=0\nCmnd_Alias SMARTCTL_DISCOVERY=(),SMARTCTL_DISCOVERY\nDefaults!SMARTCTL_DISCOVERY 0")

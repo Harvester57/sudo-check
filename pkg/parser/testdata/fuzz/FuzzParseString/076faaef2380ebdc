@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults!PAGERS noexec\n0 PAGERS=0,0000000000,0,0")

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults>0 0\nDefaults:A 0\nDefaults:0 0\nB A=0,0,0:A=0,0,0,0,0,0,0000#0A0\n1 A=0,0,00000,0\n1 A=(A)000:B=(A)0,0,000\n0 A=00")

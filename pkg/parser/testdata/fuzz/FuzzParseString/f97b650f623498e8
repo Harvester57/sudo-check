@@ -1,0 +1,2 @@
+go test fuzz v1
+string("Defaults:#1 0\nDefaults>#1 0\nDefaults:\"#1\" 0\nDefaults>\"#1\" 00\n#1 0=0")

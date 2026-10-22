@@ -1,0 +1,2 @@
+go test fuzz v1
+string("#include \x00000/0")
