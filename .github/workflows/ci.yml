@@ -193,7 +193,7 @@ jobs:
           merge-multiple: true
 
       - name: Generate SBOM
-        uses: sbomify/sbomify-action@57ca9ba7de2232b073a3799bc8c0dc002e6777b9 # v26.10.2
+        uses: sbomify/sbomify-action@c299cf552cb5744bad81e2a3caa55757d78d5ddd # v26.11.0
         env:
           LOCK_FILE: go.mod
           OUTPUT_FILE: dist/sudo-check-sbom.cdx.json
