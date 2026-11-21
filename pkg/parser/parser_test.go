@@ -23,6 +23,15 @@ func TestIsJSONPolicy(t *testing.T) {
 	}{
 		{"ValidJSON", []byte(`{"Defaults": [{"Options": [{"use_pty": true}]}]}`), true},
 		{"ValidJSONWithBOMAndWhitespace", []byte("\xef\xbb\xbf  \n\t {\"User_Specs\": []}"), true},
+		{"EmptyJSONObject", []byte(`{}`), true},
+		{"EmptyDefaultsArray", []byte(`{"Defaults": []}`), true},
+		{"EmptyUserSpecsArray", []byte(`{"User_Specs": []}`), true},
+		{"AllValidTopLevelKeys", []byte(`{"Defaults": [], "User_Aliases": {}, "Runas_Aliases": {}, "Host_Aliases": {}, "Command_Aliases": {}, "User_Specs": []}`), true},
+		{"ArbitraryJSONObject", []byte(`{"foo": "bar"}`), false},
+		{"GTFObinsJSON", []byte(`{"executables": {}}`), false},
+		{"AuditReportJSON", []byte(`{"policy_findings": []}`), false},
+		{"MixedKnownAndUnknownKeys", []byte(`{"Defaults": [], "foo": "bar"}`), false},
+		{"JSONArray", []byte(`[]`), false},
 		{"RawSudoers", []byte("Defaults env_reset\nroot ALL=(ALL:ALL) ALL\n"), false},
 		{"Empty", []byte("   "), false},
 		{"InvalidJSONBraces", []byte("{not valid json"), false},
@@ -348,6 +357,134 @@ Defaults env_reset
 	}
 }
 
+func TestResolveIncludePath(t *testing.T) {
+	t.Run("OfflineEtcIncludeDoesNotFallBackToHostEtc", func(t *testing.T) {
+		tmpDir := t.TempDir()
+
+		got := resolveIncludePath("/etc/sudoers.d", tmpDir)
+		want := filepath.Join(tmpDir, "sudoers.d")
+		if got == "/etc/sudoers.d" {
+			t.Fatalf("resolveIncludePath leaked host path %q for offline baseDir %q", got, tmpDir)
+		}
+		if got != want {
+			t.Errorf("resolveIncludePath(%q, %q) = %q, want %q", "/etc/sudoers.d", tmpDir, got, want)
+		}
+
+		gotEtc := resolveIncludePath("/etc", tmpDir)
+		wantEtc := filepath.Join(tmpDir, "etc")
+		if gotEtc == "/etc" {
+			t.Fatalf("resolveIncludePath leaked host path %q for offline baseDir %q", gotEtc, tmpDir)
+		}
+		if gotEtc != wantEtc {
+			t.Errorf("resolveIncludePath(%q, %q) = %q, want %q", "/etc", tmpDir, gotEtc, wantEtc)
+		}
+
+		gotMissing := resolveIncludePath("/etc/sudoers.d/missing", tmpDir)
+		wantMissing := filepath.Join(tmpDir, "sudoers.d", "missing")
+		if gotMissing == "/etc/sudoers.d/missing" {
+			t.Fatalf("resolveIncludePath leaked host path %q for offline baseDir %q", gotMissing, tmpDir)
+		}
+		if gotMissing != wantMissing {
+			t.Errorf("resolveIncludePath(%q, %q) = %q, want %q", "/etc/sudoers.d/missing", tmpDir, gotMissing, wantMissing)
+		}
+	})
+
+	t.Run("OfflineEtcPrefersLocalCandidates", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nestedDir := filepath.Join(tmpDir, "sudoers.d")
+		if err := os.MkdirAll(nestedDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		nestedFile := filepath.Join(nestedDir, "01_app")
+		if err := os.WriteFile(nestedFile, []byte("alice ALL = /bin/ls\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		flatFile := filepath.Join(tmpDir, "02_flat")
+		if err := os.WriteFile(flatFile, []byte("bob ALL = /bin/cat\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if got := resolveIncludePath("/etc/sudoers.d/01_app", tmpDir); got != nestedFile {
+			t.Errorf("resolveIncludePath nested = %q, want %q", got, nestedFile)
+		}
+		if got := resolveIncludePath("/etc/sudoers.d/02_flat", tmpDir); got != flatFile {
+			t.Errorf("resolveIncludePath flat = %q, want %q", got, flatFile)
+		}
+	})
+
+	t.Run("LiveEtcNonEtcAbsoluteAndRelativePaths", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		otherDir := t.TempDir()
+		otherFile := filepath.Join(otherDir, "extra_sudoers")
+		if err := os.WriteFile(otherFile, []byte("carol ALL = /usr/bin/id\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if got := resolveIncludePath("/etc/sudoers.d", "/etc"); got != "/etc/sudoers.d" {
+			t.Errorf("resolveIncludePath live /etc = %q, want %q", got, "/etc/sudoers.d")
+		}
+		if got := resolveIncludePath(otherFile, tmpDir); got != otherFile {
+			t.Errorf("resolveIncludePath external abs = %q, want %q", got, otherFile)
+		}
+		wantRel := filepath.Join(tmpDir, "sudoers.d")
+		if got := resolveIncludePath("sudoers.d", tmpDir); got != wantRel {
+			t.Errorf("resolveIncludePath relative = %q, want %q", got, wantRel)
+		}
+	})
+}
+
+func TestIncludedirErrorPropagation(t *testing.T) {
+	t.Run("NonDirectoryReturnsError", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		notADir := filepath.Join(tmpDir, "not_a_dir")
+		if err := os.WriteFile(notADir, []byte("alice ALL = /bin/ls\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mainFile := filepath.Join(tmpDir, "sudoers")
+		if err := os.WriteFile(mainFile, []byte("@includedir not_a_dir\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := ParseFile(mainFile)
+		if err == nil {
+			t.Fatal("expected error when @includedir points to a regular file, got nil")
+		}
+		if !strings.Contains(err.Error(), "failed to read included directory") {
+			t.Errorf("unexpected error message: %v", err)
+		}
+	})
+
+	t.Run("PermissionDeniedReturnsErrorOnUnix", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("permission-denied includedir test requires non-root Unix environment")
+		}
+		tmpDir := t.TempDir()
+		lockedDir := filepath.Join(tmpDir, "locked_sudoers_d")
+		if err := os.MkdirAll(lockedDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(lockedDir, 0000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			_ = os.Chmod(lockedDir, 0755)
+		})
+
+		mainFile := filepath.Join(tmpDir, "sudoers")
+		if err := os.WriteFile(mainFile, []byte("#includedir locked_sudoers_d\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := ParseFile(mainFile)
+		if err == nil {
+			t.Fatal("expected permission error from unreadable #includedir, got nil")
+		}
+		if !os.IsPermission(err) {
+			t.Errorf("expected permission error, got: %v", err)
+		}
+	})
+}
+
 func TestParseErrors(t *testing.T) {
 	errorCases := []struct {
 		name  string
@@ -487,6 +624,7 @@ func stripFindingLines(findings []audit.Finding) []audit.Finding {
 	out := make([]audit.Finding, len(findings))
 	for i, f := range findings {
 		f.Line = 0
+		f.SourceLine = ""
 		out[i] = f
 	}
 	return out
@@ -672,5 +810,346 @@ regular_user ALL = /usr/bin/find /var/log -type f
 					len(nativeFindings), nativeFindings, len(cvtFindings), cvtFindings)
 			}
 		})
+	}
+}
+
+func TestParseFileAndReader_AutoDetectSudoLLAndLDIF(t *testing.T) {
+	t.Run("SudoLL", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		sudollInput := strings.Join([]string{
+			"Matching Defaults entries for deploy on web01:",
+			`    env_reset, !requiretty, secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"`,
+			"",
+			"User deploy may run the following commands on web01:",
+			"",
+			"Sudoers entry:",
+			"    RunAsUsers: root",
+			"    Options: !authenticate",
+			"    Commands:",
+			"        /usr/bin/systemctl restart nginx",
+			"",
+			"Sudoers entry:",
+			"    RunAsUsers: postgres",
+			"    Commands:",
+			"        /usr/bin/psql",
+		}, "\n") + "\n"
+
+		sudollPath := filepath.Join(tmpDir, "sudo_ll_output.txt")
+		if err := os.WriteFile(sudollPath, []byte(sudollInput), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		verifySudoLLPolicy := func(t *testing.T, policy *audit.SudoersPolicy, wantFile string) {
+			t.Helper()
+			wantCmdFile := normalizeSourceFile(wantFile)
+			if len(policy.Defaults) != 1 {
+				t.Fatalf("expected 1 DefaultBinding, got %d: %+v", len(policy.Defaults), policy.Defaults)
+			}
+			def := policy.Defaults[0]
+			if def.File != wantFile {
+				t.Errorf("Defaults[0].File = %q, want %q", def.File, wantFile)
+			}
+			if len(def.Options) != 3 ||
+				def.Options[0]["env_reset"] != true ||
+				def.Options[1]["requiretty"] != false ||
+				def.Options[2]["secure_path"] != "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" {
+				t.Errorf("unexpected Defaults[0].Options: %+v", def.Options)
+			}
+
+			if len(policy.UserSpecs) != 2 {
+				t.Fatalf("expected 2 UserSpecs, got %d: %+v", len(policy.UserSpecs), policy.UserSpecs)
+			}
+			spec0 := policy.UserSpecs[0]
+			if spec0.File != wantFile {
+				t.Errorf("UserSpecs[0].File = %q, want %q", spec0.File, wantFile)
+			}
+			if len(spec0.UserList) != 1 || spec0.UserList[0].Username != "deploy" || spec0.UserList[0].File != wantFile {
+				t.Errorf("unexpected UserSpecs[0].UserList: %+v", spec0.UserList)
+			}
+			if len(spec0.HostList) != 1 || spec0.HostList[0].Hostname != "web01" || spec0.HostList[0].File != wantFile {
+				t.Errorf("unexpected UserSpecs[0].HostList: %+v", spec0.HostList)
+			}
+			cs0 := spec0.CmndSpecs[0]
+			if len(cs0.RunasUsers) != 1 || cs0.RunasUsers[0].Username != "root" {
+				t.Errorf("unexpected UserSpecs[0] RunasUsers: %+v", cs0.RunasUsers)
+			}
+			if len(cs0.Options) != 1 || cs0.Options[0]["authenticate"] != false {
+				t.Errorf("unexpected UserSpecs[0] Options: %+v", cs0.Options)
+			}
+			if len(cs0.Commands) != 1 || cs0.Commands[0].Command != "/usr/bin/systemctl restart nginx" || cs0.Commands[0].File != wantCmdFile {
+				t.Errorf("unexpected UserSpecs[0] Commands: %+v", cs0.Commands)
+			}
+
+			spec1 := policy.UserSpecs[1]
+			if spec1.File != wantFile {
+				t.Errorf("UserSpecs[1].File = %q, want %q", spec1.File, wantFile)
+			}
+			if len(spec1.CmndSpecs[0].RunasUsers) != 1 || spec1.CmndSpecs[0].RunasUsers[0].Username != "postgres" {
+				t.Errorf("unexpected UserSpecs[1] RunasUsers: %+v", spec1.CmndSpecs[0].RunasUsers)
+			}
+			if len(spec1.CmndSpecs[0].Commands) != 1 || spec1.CmndSpecs[0].Commands[0].Command != "/usr/bin/psql" || spec1.CmndSpecs[0].Commands[0].File != wantCmdFile {
+				t.Errorf("unexpected UserSpecs[1] Commands: %+v", spec1.CmndSpecs[0].Commands)
+			}
+		}
+
+		fromFile, err := ParseFile(sudollPath)
+		if err != nil {
+			t.Fatalf("ParseFile on sudo -ll output failed: %v", err)
+		}
+		verifySudoLLPolicy(t, fromFile, filepath.ToSlash(sudollPath))
+
+		fromNamedReader, err := ParseReader(strings.NewReader(sudollInput), "host-web01.sudoll", tmpDir)
+		if err != nil {
+			t.Fatalf("ParseReader (named) on sudo -ll output failed: %v", err)
+		}
+		verifySudoLLPolicy(t, fromNamedReader, "host-web01.sudoll")
+
+		fromStdinReader, err := ParseReader(strings.NewReader(sudollInput), "", "")
+		if err != nil {
+			t.Fatalf("ParseReader (empty filename -> stdin) on sudo -ll output failed: %v", err)
+		}
+		verifySudoLLPolicy(t, fromStdinReader, "stdin")
+
+		fromParseString, err := ParseString(sudollInput)
+		if err != nil {
+			t.Fatalf("ParseString on sudo -ll output failed: %v", err)
+		}
+		verifySudoLLPolicy(t, fromParseString, "stdin")
+	})
+
+	t.Run("LDIF", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		ldifInput := strings.Join([]string{
+			"version: 1",
+			"dn: cn=defaults,ou=SUDOers,dc=example,dc=com",
+			"objectClass: sudoRole",
+			"cn: defaults",
+			"sudoOption: env_reset",
+			"sudoOption: !visiblepw",
+			"",
+			"dn: cn=late_rule,ou=SUDOers,dc=example,dc=com",
+			"objectClass: sudoRole",
+			"cn: late_rule",
+			"sudoUser: second_user",
+			"sudoHost: db01",
+			"sudoRunAsUser: postgres",
+			"sudoCommand: /usr/bin/pg_dump",
+			"sudoOrder: 20",
+			"",
+			"dn: cn=early_rule,ou=SUDOers,dc=example,dc=com",
+			"objectClass: sudoRole",
+			"cn: early_rule",
+			"sudoUser: first_user",
+			"sudoHost: app01",
+			"sudoRunAsUser: root",
+			"sudoOption: !authenticate",
+			"sudoCommand: /usr/bin/id",
+			"sudoOrder: 5",
+		}, "\n") + "\n"
+
+		ldifPath := filepath.Join(tmpDir, "sudoers.ldif")
+		if err := os.WriteFile(ldifPath, []byte(ldifInput), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		verifyLDIFPolicy := func(t *testing.T, policy *audit.SudoersPolicy, wantFile string) {
+			t.Helper()
+			wantCmdFile := normalizeSourceFile(wantFile)
+			if len(policy.Defaults) != 1 {
+				t.Fatalf("expected 1 DefaultBinding, got %d: %+v", len(policy.Defaults), policy.Defaults)
+			}
+			def := policy.Defaults[0]
+			if def.File != wantFile {
+				t.Errorf("Defaults[0].File = %q, want %q", def.File, wantFile)
+			}
+			if len(def.Options) != 2 || def.Options[0]["env_reset"] != true || def.Options[1]["visiblepw"] != false {
+				t.Errorf("unexpected Defaults[0].Options: %+v", def.Options)
+			}
+
+			if len(policy.UserSpecs) != 2 {
+				t.Fatalf("expected 2 UserSpecs, got %d: %+v", len(policy.UserSpecs), policy.UserSpecs)
+			}
+
+			// sudoOrder=5 must sort before sudoOrder=20
+			spec0 := policy.UserSpecs[0]
+			if spec0.File != wantFile {
+				t.Errorf("UserSpecs[0].File = %q, want %q", spec0.File, wantFile)
+			}
+			if len(spec0.UserList) != 1 || spec0.UserList[0].Username != "first_user" || spec0.UserList[0].File != wantFile {
+				t.Errorf("expected first_user ordered first, got: %+v", spec0.UserList)
+			}
+			if len(spec0.HostList) != 1 || spec0.HostList[0].Hostname != "app01" || spec0.HostList[0].File != wantFile {
+				t.Errorf("unexpected UserSpecs[0].HostList: %+v", spec0.HostList)
+			}
+			if len(spec0.CmndSpecs[0].Options) != 1 || spec0.CmndSpecs[0].Options[0]["authenticate"] != false {
+				t.Errorf("unexpected UserSpecs[0] Options: %+v", spec0.CmndSpecs[0].Options)
+			}
+			if len(spec0.CmndSpecs[0].Commands) != 1 || spec0.CmndSpecs[0].Commands[0].Command != "/usr/bin/id" || spec0.CmndSpecs[0].Commands[0].File != wantCmdFile {
+				t.Errorf("unexpected UserSpecs[0] Commands: %+v", spec0.CmndSpecs[0].Commands)
+			}
+
+			spec1 := policy.UserSpecs[1]
+			if spec1.File != wantFile {
+				t.Errorf("UserSpecs[1].File = %q, want %q", spec1.File, wantFile)
+			}
+			if len(spec1.UserList) != 1 || spec1.UserList[0].Username != "second_user" || spec1.UserList[0].File != wantFile {
+				t.Errorf("expected second_user ordered second, got: %+v", spec1.UserList)
+			}
+			if len(spec1.HostList) != 1 || spec1.HostList[0].Hostname != "db01" || spec1.HostList[0].File != wantFile {
+				t.Errorf("unexpected UserSpecs[1].HostList: %+v", spec1.HostList)
+			}
+			if len(spec1.CmndSpecs[0].RunasUsers) != 1 || spec1.CmndSpecs[0].RunasUsers[0].Username != "postgres" {
+				t.Errorf("unexpected UserSpecs[1] RunasUsers: %+v", spec1.CmndSpecs[0].RunasUsers)
+			}
+			if len(spec1.CmndSpecs[0].Commands) != 1 || spec1.CmndSpecs[0].Commands[0].Command != "/usr/bin/pg_dump" || spec1.CmndSpecs[0].Commands[0].File != wantCmdFile {
+				t.Errorf("unexpected UserSpecs[1] Commands: %+v", spec1.CmndSpecs[0].Commands)
+			}
+		}
+
+		fromFile, err := ParseFile(ldifPath)
+		if err != nil {
+			t.Fatalf("ParseFile on LDIF failed: %v", err)
+		}
+		verifyLDIFPolicy(t, fromFile, filepath.ToSlash(ldifPath))
+
+		fromNamedReader, err := ParseReader(strings.NewReader(ldifInput), "ldap-export.ldif", tmpDir)
+		if err != nil {
+			t.Fatalf("ParseReader (named) on LDIF failed: %v", err)
+		}
+		verifyLDIFPolicy(t, fromNamedReader, "ldap-export.ldif")
+
+		fromStdinReader, err := ParseReader(strings.NewReader(ldifInput), "", "")
+		if err != nil {
+			t.Fatalf("ParseReader (empty filename -> stdin) on LDIF failed: %v", err)
+		}
+		verifyLDIFPolicy(t, fromStdinReader, "stdin")
+
+		fromParseString, err := ParseString(ldifInput)
+		if err != nil {
+			t.Fatalf("ParseString on LDIF failed: %v", err)
+		}
+		verifyLDIFPolicy(t, fromParseString, "stdin")
+	})
+
+	t.Run("RawSudoersAndJSONPreserved", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		rawSudoers := strings.Join([]string{
+			"# Comment that mentions objectClass: sudoRole and User bob may run the following commands on h:",
+			"Defaults env_reset, use_pty",
+			"alice ALL = (root) NOPASSWD: /usr/bin/id",
+		}, "\n") + "\n"
+
+		rawPath := filepath.Join(tmpDir, "sudoers")
+		if err := os.WriteFile(rawPath, []byte(rawSudoers), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		verifyRaw := func(t *testing.T, p *audit.SudoersPolicy, wantFile string) {
+			t.Helper()
+			if len(p.Defaults) != 1 || len(p.UserSpecs) != 1 {
+				t.Fatalf("unexpected raw sudoers counts: defaults=%d userspecs=%d", len(p.Defaults), len(p.UserSpecs))
+			}
+			if p.Defaults[0].File != wantFile {
+				t.Errorf("raw Defaults[0].File = %q, want %q", p.Defaults[0].File, wantFile)
+			}
+			if p.UserSpecs[0].File != wantFile || p.UserSpecs[0].UserList[0].Username != "alice" {
+				t.Errorf("unexpected raw UserSpecs[0]: %+v", p.UserSpecs[0])
+			}
+			if p.UserSpecs[0].CmndSpecs[0].Commands[0].Command != "/usr/bin/id" {
+				t.Errorf("unexpected raw command: %+v", p.UserSpecs[0].CmndSpecs[0].Commands)
+			}
+		}
+
+		rawFromFile, err := ParseFile(rawPath)
+		if err != nil {
+			t.Fatalf("ParseFile on raw sudoers failed: %v", err)
+		}
+		verifyRaw(t, rawFromFile, filepath.ToSlash(rawPath))
+
+		rawNamedReader, err := ParseReader(strings.NewReader(rawSudoers), "raw.sudoers", tmpDir)
+		if err != nil {
+			t.Fatalf("ParseReader (named) on raw sudoers failed: %v", err)
+		}
+		verifyRaw(t, rawNamedReader, "raw.sudoers")
+
+		rawStdinReader, err := ParseReader(strings.NewReader(rawSudoers), "", "")
+		if err != nil {
+			t.Fatalf("ParseReader (empty filename) on raw sudoers failed: %v", err)
+		}
+		verifyRaw(t, rawStdinReader, "")
+
+		// Marshal to cvtsudoers-compatible JSON and verify ParseFile / ParseReader (with and without BOM)
+		jsonBytes, err := json.Marshal(rawStdinReader)
+		if err != nil {
+			t.Fatalf("json.Marshal failed: %v", err)
+		}
+		jsonPath := filepath.Join(tmpDir, "policy.json")
+		if err := os.WriteFile(jsonPath, jsonBytes, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		jsonFromFile, err := ParseFile(jsonPath)
+		if err != nil {
+			t.Fatalf("ParseFile on JSON failed: %v", err)
+		}
+		verifyRaw(t, jsonFromFile, "")
+
+		jsonFromReader, err := ParseReader(bytes.NewReader(jsonBytes), "policy.json", tmpDir)
+		if err != nil {
+			t.Fatalf("ParseReader on JSON failed: %v", err)
+		}
+		verifyRaw(t, jsonFromReader, "")
+
+		bomJSON := append([]byte("\xef\xbb\xbf"), jsonBytes...)
+		jsonFromBOMReader, err := ParseReader(bytes.NewReader(bomJSON), "", "")
+		if err != nil {
+			t.Fatalf("ParseReader on BOM JSON failed: %v", err)
+		}
+		verifyRaw(t, jsonFromBOMReader, "")
+
+		if _, err := ParseReader(nil, "", ""); err == nil {
+			t.Error("expected error for nil reader in ParseReader, got nil")
+		}
+	})
+}
+
+func TestParseFileWithOptions_DeterministicHostIncludeExpansion(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	localHost, _ := os.Hostname()
+	if idx := strings.IndexByte(localHost, '.'); idx != -1 {
+		localHost = localHost[:idx]
+	}
+	if localHost == "" {
+		localHost = "localtest"
+	}
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "host_"+localHost), []byte("localuser ALL = /usr/bin/id\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "host_web01"), []byte("webuser ALL = /usr/bin/systemctl status nginx\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mainPath := filepath.Join(tmpDir, "sudoers")
+	if err := os.WriteFile(mainPath, []byte("#include host_%h\nbaseuser ALL = /usr/bin/ls\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Offline mode with no Hostname must NOT expand %h using the local machine's hostname.
+	offlinePolicy, err := ParseFileWithOptions(mainPath, ParseOptions{Offline: true})
+	if err != nil {
+		t.Fatalf("ParseFileWithOptions offline failed: %v", err)
+	}
+	if len(offlinePolicy.UserSpecs) != 1 || offlinePolicy.UserSpecs[0].UserList[0].Username != "baseuser" {
+		t.Errorf("expected offline parse to skip %%h include and only parse baseuser, got %+v", offlinePolicy.UserSpecs)
+	}
+
+	// Explicit Hostname (FQDN) strips domain to short hostname "web01" and includes host_web01.
+	targetedPolicy, err := ParseFileWithOptions(mainPath, ParseOptions{Hostname: "web01.example.com", Offline: true})
+	if err != nil {
+		t.Fatalf("ParseFileWithOptions with Hostname failed: %v", err)
+	}
+	if len(targetedPolicy.UserSpecs) != 2 || targetedPolicy.UserSpecs[0].UserList[0].Username != "webuser" {
+		t.Errorf("expected targeted offline parse to include webuser from host_web01, got %+v", targetedPolicy.UserSpecs)
 	}
 }

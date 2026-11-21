@@ -92,60 +92,101 @@ var cmndPostTagOptionOrder = []string{
 	"limitprivs",
 }
 
+var validJSONPolicyKeys = map[string]bool{
+	"Defaults":        true,
+	"User_Aliases":    true,
+	"Runas_Aliases":   true,
+	"Host_Aliases":    true,
+	"Command_Aliases": true,
+	"User_Specs":      true,
+}
+
 // IsJSONPolicy reports whether data represents a JSON-formatted sudoers policy (such as cvtsudoers -f json output)
 // rather than a raw sudoers configuration file.
 func IsJSONPolicy(data []byte) bool {
 	trimmed := bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	trimmed = bytes.TrimSpace(trimmed)
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+	if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
 		return false
 	}
-	return json.Valid(trimmed)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return false
+	}
+	if len(obj) == 0 {
+		return true
+	}
+	for k := range obj {
+		if !validJSONPolicyKeys[k] {
+			return false
+		}
+	}
+	return true
 }
 
-// ParseFile parses a sudoers file from disk (or a cvtsudoers JSON file if detected) into an audit.SudoersPolicy.
+// ParseOptions configures deterministic policy parsing behavior.
+type ParseOptions struct {
+	// Hostname sets the target short hostname used to expand "%h" in #include/@include
+	// directives. When empty and Offline is false, the local host's os.Hostname() is used.
+	Hostname string
+	// Offline disables falling back to the scanning machine's os.Hostname() when Hostname
+	// is empty, ensuring offline scans are deterministic across workstations.
+	Offline bool
+}
+
+// ParseFile parses a sudoers file, cvtsudoers JSON export, sudo -ll output, or RFC 2849 LDIF
+// policy from disk into an audit.SudoersPolicy.
 func ParseFile(path string) (*audit.SudoersPolicy, error) {
+	return ParseFileWithOptions(path, ParseOptions{})
+}
+
+// ParseFileWithOptions parses a sudoers file, cvtsudoers JSON export, sudo -ll output,
+// or RFC 2849 LDIF policy from disk using the supplied ParseOptions.
+func ParseFileWithOptions(path string, opts ParseOptions) (*audit.SudoersPolicy, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sudoers file %s: %w", path, err)
 	}
-	if IsJSONPolicy(data) {
-		var policy audit.SudoersPolicy
-		if err := json.Unmarshal(data, &policy); err != nil {
-			return nil, fmt.Errorf("failed to parse JSON policy %s: %w", path, err)
-		}
-		return &policy, nil
+	cleanPath := filepath.Clean(path)
+	if policy, handled, err := parseDetectedPolicyFormat(data, cleanPath); handled {
+		return policy, err
 	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		absPath = path
 	}
 	baseDir := filepath.Dir(path)
-	ctx := newParseContext()
+	ctx := newParseContextWithOptions(opts)
 	ctx.activeFiles[filepath.Clean(absPath)] = true
-	if err := ctx.parseBytes(data, filepath.Clean(path), baseDir, 0); err != nil {
+	if err := ctx.parseBytes(data, cleanPath, baseDir, 0); err != nil {
 		return nil, err
 	}
 	return ctx.policy, nil
 }
 
-// ParseReader parses raw sudoers content from an io.Reader using baseDir to resolve relative includes.
+// ParseReader parses sudoers, cvtsudoers JSON, sudo -ll, or RFC 2849 LDIF policy content
+// from an io.Reader using baseDir to resolve relative includes in raw sudoers policies.
 func ParseReader(r io.Reader, filename string, baseDir string) (*audit.SudoersPolicy, error) {
+	return ParseReaderWithOptions(r, filename, baseDir, ParseOptions{})
+}
+
+// ParseReaderWithOptions parses sudoers, cvtsudoers JSON, sudo -ll, or RFC 2849 LDIF policy
+// content from an io.Reader using baseDir and opts.
+func ParseReaderWithOptions(r io.Reader, filename string, baseDir string, opts ParseOptions) (*audit.SudoersPolicy, error) {
+	if filename == "" {
+		filename = "stdin"
+	}
+	if r == nil {
+		return nil, fmt.Errorf("failed to read %s: nil reader", filename)
+	}
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", filename, err)
 	}
-	if IsJSONPolicy(data) {
-		var policy audit.SudoersPolicy
-		if err := json.Unmarshal(data, &policy); err != nil {
-			return nil, fmt.Errorf("failed to parse JSON policy %s: %w", filename, err)
-		}
-		return &policy, nil
+	if policy, handled, err := parseDetectedPolicyFormat(data, filename); handled {
+		return policy, err
 	}
-	if filename == "" {
-		filename = "stdin"
-	}
-	ctx := newParseContext()
+	ctx := newParseContextWithOptions(opts)
 	if baseDir != "" && filename != "stdin" {
 		if abs, err := filepath.Abs(filepath.Join(baseDir, filepath.Base(filename))); err == nil {
 			ctx.activeFiles[filepath.Clean(abs)] = true
@@ -155,6 +196,26 @@ func ParseReader(r io.Reader, filename string, baseDir string) (*audit.SudoersPo
 		return nil, err
 	}
 	return ctx.policy, nil
+}
+
+func parseDetectedPolicyFormat(data []byte, source string) (*audit.SudoersPolicy, bool, error) {
+	if IsJSONPolicy(data) {
+		trimmed := bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+		var policy audit.SudoersPolicy
+		if err := json.Unmarshal(trimmed, &policy); err != nil {
+			return nil, true, fmt.Errorf("failed to parse JSON policy %s: %w", source, err)
+		}
+		return &policy, true, nil
+	}
+	if IsSudoLLOutput(data) {
+		policy, err := ParseSudoLL(bytes.NewReader(data), source)
+		return policy, true, err
+	}
+	if IsLDIFPolicy(data) {
+		policy, err := ParseLDIF(bytes.NewReader(data), source)
+		return policy, true, err
+	}
+	return nil, false, nil
 }
 
 // ParseString parses a raw sudoers policy string into an audit.SudoersPolicy.
@@ -169,7 +230,14 @@ type parseContext struct {
 }
 
 func newParseContext() *parseContext {
-	h, _ := os.Hostname()
+	return newParseContextWithOptions(ParseOptions{})
+}
+
+func newParseContextWithOptions(opts ParseOptions) *parseContext {
+	h := strings.TrimSpace(opts.Hostname)
+	if h == "" && !opts.Offline {
+		h, _ = os.Hostname()
+	}
 	if idx := strings.IndexByte(h, '.'); idx != -1 {
 		h = h[:idx]
 	}
@@ -442,6 +510,11 @@ func (ctx *parseContext) handleInclude(kind string, rawTarget string, baseDir st
 		return nil
 	}
 
+	if strings.Contains(rawTarget, "%h") && ctx.hostname == "" {
+		// In deterministic offline mode without an explicit target hostname,
+		// skip unresolvable %h includes rather than substituting the auditor host's name.
+		return nil
+	}
 	target := strings.ReplaceAll(rawTarget, "%h", ctx.hostname)
 	resolved := resolveIncludePath(target, baseDir)
 
@@ -449,8 +522,15 @@ func (ctx *parseContext) handleInclude(kind string, rawTarget string, baseDir st
 	if isDirDirective {
 		entries, err := os.ReadDir(resolved)
 		if err != nil {
-			// Non-existent includedir is ignored per sudoers specification
-			return nil
+			if os.IsNotExist(err) {
+				// On Windows, syscall.ENOTDIR aliases ERROR_PATH_NOT_FOUND (matched by os.IsNotExist),
+				// so confirm via os.Stat that the path truly does not exist before ignoring it.
+				if _, statErr := os.Stat(resolved); statErr != nil && os.IsNotExist(statErr) {
+					// Non-existent includedir is ignored per sudoers specification
+					return nil
+				}
+			}
+			return fmt.Errorf("failed to read included directory %s: %w", resolved, err)
 		}
 		var names []string
 		for _, entry := range entries {
@@ -480,15 +560,30 @@ func (ctx *parseContext) handleInclude(kind string, rawTarget string, baseDir st
 func resolveIncludePath(target string, baseDir string) string {
 	if filepath.IsAbs(target) || strings.HasPrefix(target, "/") {
 		cleanBase := filepath.ToSlash(filepath.Clean(baseDir))
-		if baseDir != "" && cleanBase != "/etc" {
-			// Prefer offline local candidates when scanning a sudoers policy outside /etc
-			trimmed := strings.TrimPrefix(target, "/etc/")
-			if trimmed != target {
-				candidate := filepath.Join(baseDir, trimmed)
-				if _, err := os.Stat(candidate); err == nil {
-					return candidate
+		cleanTarget := filepath.ToSlash(filepath.Clean(target))
+		isEtcTarget := cleanTarget == "/etc" || strings.HasPrefix(cleanTarget, "/etc/")
+
+		if baseDir != "" && cleanBase != "/etc" && !strings.HasPrefix(cleanBase, "/etc/") {
+			if isEtcTarget {
+				rel := strings.TrimPrefix(cleanTarget, "/etc/")
+				firstCandidate := filepath.Join(baseDir, rel)
+				if rel == cleanTarget || rel == "" {
+					firstCandidate = filepath.Join(baseDir, filepath.Base(cleanTarget))
 				}
+				if _, err := os.Stat(firstCandidate); err == nil {
+					return firstCandidate
+				}
+				baseCandidate := filepath.Join(baseDir, filepath.Base(cleanTarget))
+				if baseCandidate != firstCandidate {
+					if _, err := os.Stat(baseCandidate); err == nil {
+						return baseCandidate
+					}
+				}
+				// Never fall back to the auditor host's /etc/... during offline scans.
+				return firstCandidate
 			}
+
+			// Prefer offline local candidates when scanning a sudoers policy outside /etc
 			baseCandidate := filepath.Join(baseDir, filepath.Base(target))
 			if _, err := os.Stat(baseCandidate); err == nil {
 				return baseCandidate
@@ -499,7 +594,7 @@ func resolveIncludePath(target string, baseDir string) string {
 		}
 		if baseDir != "" {
 			trimmed := strings.TrimPrefix(target, "/etc/")
-			if trimmed != target {
+			if trimmed != target && trimmed != "" {
 				candidate := filepath.Join(baseDir, trimmed)
 				if _, err := os.Stat(candidate); err == nil {
 					return candidate
@@ -614,6 +709,7 @@ func (ctx *parseContext) parseDefaultsLine(line string, filename string, lineNum
 		Options: options,
 		File:    srcFile,
 		Line:    lineNum,
+		RawLine: line,
 	})
 	return nil
 }
@@ -1744,6 +1840,7 @@ func (ctx *parseContext) parseUserSpecLine(line string, filename string, lineNum
 			CmndSpecs: cmndSpecs,
 			File:      srcFile,
 			Line:      lineNum,
+			RawLine:   line,
 		})
 	}
 
