@@ -1,0 +1,219 @@
+# ==============================================================================
+# GoDoctor Master Configuration (.godoctor.yaml)
+# ==============================================================================
+version: "1"
+
+# CLI Global Execution Settings
+cli:
+  timeout: "60s"
+  output_format: "text"           # "text" | "json" | "yaml"
+  color: true
+  log_level: "info"               # "debug" | "info" | "warn" | "error"
+
+# MCP Server Settings
+server:
+  name: "godoctor"
+  transport: "stdio"              # "stdio" | "http"
+  http:
+    listen: ":8080"
+    read_timeout: "30s"
+    write_timeout: "5m"           # Extended to accommodate long-running builds/tests
+    idle_timeout: "120s"
+    shutdown_timeout: "10s"
+    allowed_origins:
+      - "http://localhost"
+      - "http://localhost:*"
+      - "http://127.0.0.1"
+      - "http://127.0.0.1:*"
+    allow_credentials: true
+  logging:
+    level: "info"                 # "debug" | "info" | "warn" | "error"
+    format: "text"                # "text" | "json"
+    trace_mcp_payloads: false
+    log_file: ""
+
+# SafeShell Subprocess Safety & Allowed Executables
+safeshell:
+  mode: "standard"                # "standard" | "strict" | "allowlist" | "disabled"
+  command_timeout: "120s"
+  allowed_binaries:
+    - "go"
+    - "gofmt"
+    - "golangci-lint"
+    - "selene"
+    - "testquery"
+    - "tq"
+    - "deadcode"
+    - "modernize"
+
+# System Instructions Prompt Configuration
+instructions:
+  enabled: true
+  compact: false
+  dynamic_tools: true            # Filter instructions to only active tools
+  rules_file: ""                 # Optional repo-specific markdown rules (e.g. .godoctor/rules.md)
+  custom_rules: ""
+
+# External Utility Definitions & RFC-0001 Version Tracking
+tools:
+  golangci_lint:
+    binary_name: "golangci-lint"
+    recommended_version: "v2.12.2"
+    min_version: "v1.60.0"
+    pkg: "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
+    config: ".golangci.yml"
+    timeout: "5m"
+    args: ["run"]
+    disabled: false
+
+  modernize:
+    binary_name: "modernize"
+    recommended_version: "latest"
+    pkg: "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest"
+    timeout: "2m"
+    args: ["-fix"]
+    disabled: false
+
+  deadcode:
+    binary_name: "deadcode"
+    recommended_version: "latest"
+    pkg: "golang.org/x/tools/cmd/deadcode@latest"
+    timeout: "2m"
+    disabled: false
+
+  selene:
+    binary_name: "selene"
+    recommended_version: "latest"
+    pkg: "github.com/danicat/selene/cmd/selene@latest"
+    packages: "./..."
+    timeout: "3m"
+    workers: 0                    # 0 defaults to runtime.GOMAXPROCS workers
+    testquery_compat: true        # Enable TestQuery SQLite DB integration
+    db_path: ".godoctor/testquery.db"
+    disabled: false
+
+  testquery:
+    binary_name: "testquery"
+    recommended_version: "latest"
+    pkg: "github.com/danicat/testquery@latest"
+    db_path: ".godoctor/testquery.db"
+    format: "table"
+    timeout: "2m"
+    disabled: false
+
+# Build Pipeline Configuration (smart_build)
+build:
+  default_packages: "./..."
+  output: ""
+  tags: []
+  race: false
+  trimpath: false
+  timeout: "5m"
+  flags: []
+
+# Auto-Fix Pipeline Configuration (smart_build)
+autofix:
+  enabled: true
+  dry_run: false
+  order:
+    - tidy
+    - modernize
+    - gofmt
+  mod_tidy: true
+  modernize: true
+  gofmt: true
+  deadcode: true
+
+# Transactional Edit Engine (smart_edit)
+edit:
+  backup_strategy: "memory"       # "memory" | "temp_file" | "git"
+  atomic_write: true              # Write-to-temp + atomic os.Rename
+  preserve_permissions: true      # Retain original os.FileMode
+  default_threshold: 0.95
+  format_on_save: "goimports"     # "goimports" | "gofmt" | "none"
+  exclude_paths:
+    - ".git"
+    - "vendor"
+    - "node_modules"
+    - "skills"
+    - "agents"
+    - "hooks"
+
+# Fuzzy Coordinate Matching Engine (match.go)
+matching:
+  fuzzy_fallback: true
+  similarity_threshold: 0.95
+  normalize_unicode: true         # Strip non-breaking spaces (\u00A0) and Unicode whitespace
+  min_seed_length: 3
+  window_expansion_delta: 4
+
+# Compiler Diagnostics & Verification Gate (diagnostics.go)
+diagnostics:
+  collect_on_edit: true
+  verification_scope: "module"    # "module" | "package" | "edited_files"
+  check_command:
+    - "go"
+    - "vet"
+    - "./..."
+  timeout: "30s"
+  enable_suggestions: true
+  max_levenshtein_distance: 3
+  max_suggestions: 5
+  snippet_context_lines: 5
+
+# Test & Benchmark Runner (smart_test)
+test:
+  default_level: "basic"           # "fast" | "basic" | "benchmark" | "complete"
+  default_packages: "./..."
+  timeout: "60s"
+  verbose: true
+  race_detector: false
+  coverage_threshold: 80.0
+  coverage_profile: "coverage.out"
+  coverage_output_dir: ""          # Empty string uses os.TempDir()
+  benchmark_pattern: "."
+  benchmark_flags:
+    - "-benchmem"
+    - "-run=NONE"
+
+# SQLite Test Analytics (test_query)
+testquery:
+  db_path: ".godoctor/testquery.db"
+  wal_mode: true
+  busy_timeout: "5s"
+  format: "table"                  # "table" | "json" | "csv"
+
+# AST Documentation Engine (read_docs, godoc)
+docs:
+  cache_enabled: true
+  cache_ttl: "15m"
+  cache_max_entries: 500
+  external_fetch: true
+  offline_mode: false
+  pkg_go_dev_url: "https://pkg.go.dev"
+  max_symbols_rendered: 100
+  fuzzy_suggestions: true
+  max_fuzzy_suggestions: 5
+  fuzzy_distance_threshold: 2
+  default_format: "markdown"       # "markdown" | "json"
+  temp_dir: ""
+
+# Global Feature Flags
+features:
+  autofix: true
+  mod_tidy: true
+  modernize_check: true
+  deadcode_check: true
+  format_on_build: true
+  format_on_edit: true
+  vet_gate: true
+  auto_rollback: true
+  testquery_sync: true
+  testquery_compat: true
+  version_check_hints: true
+  coverage_gate: false
+  race_detector: false
+  strict_mode: false
+  remote_doc_fetch: true
+  vanity_resolution: true
+  docs_cache: true

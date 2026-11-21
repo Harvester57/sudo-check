@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "godoctor": {
+      "args": [
+        "mcp"
+      ],
+      "command": "godoctor"
+    }
+  }
+}
