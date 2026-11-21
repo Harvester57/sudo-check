@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.27-alpine AS builder
+
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+RUN CGO_ENABLED=0 go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+    -trimpath \
+    -o /out/sudo-check .
+
+FROM scratch
+
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=builder /out/sudo-check /sudo-check
+
+USER 65532:65532
+
+ENTRYPOINT ["/sudo-check"]

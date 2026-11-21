@@ -1,0 +1,167 @@
+name: 'sudo-check Security Audit'
+description: 'Audit sudoers policies and drop-in directories for dangerous defaults, GTFObins escalations, shadowing, and compliance gaps.'
+author: 'Florian Stosse'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  target:
+    description: 'Path to a sudoers file, sudoers.d directory, cvtsudoers JSON, sudo -ll output, LDIF policy, or "-" for stdin.'
+    required: true
+  formats:
+    description: 'Comma-separated list of report formats to generate (text, json, sarif, html, pdf).'
+    required: false
+    default: 'sarif,text'
+  fail-on:
+    description: 'Exit with status code 2 if any finding meets or exceeds this severity (CRITICAL, HIGH, MEDIUM, LOW, INFO).'
+    required: false
+    default: ''
+  config:
+    description: 'Path to a .sudo-check.yaml or .sudo-check.json configuration file.'
+    required: false
+    default: ''
+  profile:
+    description: 'Compliance profile filter (all, anssi-bp028, cis-5.2, disa-stig, minimal).'
+    required: false
+    default: ''
+  baseline:
+    description: 'Path to a baseline report.json so --fail-on triggers only on newly added findings.'
+    required: false
+    default: ''
+  dropin:
+    description: 'Enable drop-in mode to suppress global missing-Defaults rules expected in /etc/sudoers.'
+    required: false
+    default: 'false'
+  subcommand-aware:
+    description: 'Enable subcommand/argument-aware GTFObins risk evaluation.'
+    required: false
+    default: 'false'
+  upload-sarif:
+    description: 'Upload generated SARIF report to GitHub Code Scanning when available.'
+    required: false
+    default: 'true'
+  output-dir:
+    description: 'Directory where generated sudo-check reports will be written.'
+    required: false
+    default: 'sudo-check-reports'
+  go-version:
+    description: 'Go toolchain version used to build sudo-check from the action checkout.'
+    required: false
+    default: '1.27'
+
+outputs:
+  sarif-file:
+    description: 'Path to the generated SARIF report file (empty if SARIF was not generated).'
+    value: ${{ steps.scan.outputs.sarif-file }}
+  report-dir:
+    description: 'Directory containing the generated sudo-check reports.'
+    value: ${{ steps.scan.outputs.report-dir }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    - name: Build sudo-check binary
+      id: build
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        BIN_DIR: ${{ runner.temp }}/sudo-check-bin
+      run: |
+        set -euo pipefail
+        mkdir -p "${BIN_DIR}"
+        GO_EXE="$(go env GOEXE)"
+        BIN_PATH="${BIN_DIR}/sudo-check${GO_EXE}"
+        (
+          cd "${ACTION_PATH}"
+          CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o "${BIN_PATH}" .
+        )
+        echo "bin-path=${BIN_PATH}" >> "${GITHUB_OUTPUT}"
+
+    - name: Run sudo-check scan
+      id: scan
+      shell: bash
+      env:
+        SUDO_CHECK_BIN: ${{ steps.build.outputs.bin-path }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_FORMATS: ${{ inputs.formats }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_BASELINE: ${{ inputs.baseline }}
+        INPUT_DROPIN: ${{ inputs.dropin }}
+        INPUT_SUBCOMMAND_AWARE: ${{ inputs.subcommand-aware }}
+        INPUT_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        set -euo pipefail
+
+        OUT_DIR="${INPUT_OUTPUT_DIR:-sudo-check-reports}"
+        mkdir -p "${OUT_DIR}"
+
+        ARGS=("${INPUT_TARGET}" "-o" "${OUT_DIR}")
+
+        if [ -n "${INPUT_FORMATS}" ]; then
+          ARGS+=("-f" "${INPUT_FORMATS}")
+        fi
+        if [ -n "${INPUT_FAIL_ON}" ]; then
+          ARGS+=("--fail-on" "${INPUT_FAIL_ON}")
+        fi
+        if [ -n "${INPUT_CONFIG}" ]; then
+          ARGS+=("--config" "${INPUT_CONFIG}")
+        fi
+        if [ -n "${INPUT_PROFILE}" ]; then
+          ARGS+=("--profile" "${INPUT_PROFILE}")
+        fi
+        if [ -n "${INPUT_BASELINE}" ]; then
+          ARGS+=("--baseline" "${INPUT_BASELINE}")
+        fi
+
+        case "$(printf '%s' "${INPUT_DROPIN}" | tr '[:upper:]' '[:lower:]')" in
+          true|1|yes)
+            ARGS+=("--dropin")
+            ;;
+        esac
+
+        case "$(printf '%s' "${INPUT_SUBCOMMAND_AWARE}" | tr '[:upper:]' '[:lower:]')" in
+          true|1|yes)
+            ARGS+=("--subcommand-aware")
+            ;;
+        esac
+
+        set +e
+        "${SUDO_CHECK_BIN}" scan "${ARGS[@]}"
+        EXIT_CODE=$?
+        set -e
+
+        SARIF_PATH="${OUT_DIR}/report.sarif"
+        SARIF_OUT=""
+        if { [ "${EXIT_CODE}" -eq 0 ] || [ "${EXIT_CODE}" -eq 2 ]; } && [ -f "${SARIF_PATH}" ]; then
+          SARIF_OUT="${SARIF_PATH}"
+        fi
+
+        {
+          echo "exit-code=${EXIT_CODE}"
+          echo "sarif-file=${SARIF_OUT}"
+          echo "report-dir=${OUT_DIR}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Upload SARIF results to GitHub Code Scanning
+      if: inputs.upload-sarif == 'true' && steps.scan.outputs.sarif-file != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.scan.outputs.sarif-file }}
+
+    - name: Enforce sudo-check exit status
+      if: steps.scan.outputs.exit-code != '0'
+      shell: bash
+      env:
+        SCAN_EXIT_CODE: ${{ steps.scan.outputs.exit-code }}
+      run: |
+        echo "sudo-check scan failed with exit code ${SCAN_EXIT_CODE}" >&2
+        exit "${SCAN_EXIT_CODE}"
