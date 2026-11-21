@@ -1,10 +1,15 @@
 package audit
 
 import (
+	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Severity represents the severity level of an audit finding.
@@ -57,20 +62,81 @@ func ParseSeverity(s string) (Severity, bool) {
 
 // Finding represents a single security issue identified in the audit.
 type Finding struct {
-	ID              string   `json:"id"`                         // Unique identifier for the finding type (e.g. SUDO-001)
-	Title           string   `json:"title"`                      // Short summary
-	Description     string   `json:"description"`                // Detailed explanation
-	Severity        Severity `json:"severity"`                   // CRITICAL, HIGH, etc.
-	User            string   `json:"user,omitempty"`             // Affected user/group (if command spec check)
-	Host            string   `json:"host,omitempty"`             // Affected host (if command spec check)
-	Runas           string   `json:"runas,omitempty"`            // Target runas user/group (if command spec check)
-	Command         string   `json:"command,omitempty"`          // Command path involved (if command spec check)
-	Context         string   `json:"context,omitempty"`          // Location/file information if available
-	Line            int      `json:"line,omitempty"`             // Line number in source policy if available
-	Remediation     string   `json:"remediation"`                // How to fix the finding
-	RemediationCode string   `json:"remediation_code,omitempty"` // Concrete command(s) to run or secure sudoers configuration snippet
-	ExploitPoC      string   `json:"exploit_poc,omitempty"`      // Reference command illustrating the capability
-	Compliance      []string `json:"compliance,omitempty"`       // Compliance references (e.g. ANSSI-BP-028, CIS)
+	ID                string   `json:"id"`                           // Unique identifier for the finding type (e.g. SUDO-001)
+	Title             string   `json:"title"`                        // Short summary
+	Description       string   `json:"description"`                  // Detailed explanation
+	Severity          Severity `json:"severity"`                     // CRITICAL, HIGH, etc.
+	User              string   `json:"user,omitempty"`               // Affected user/group (if command spec check)
+	Host              string   `json:"host,omitempty"`               // Affected host (if command spec check)
+	Runas             string   `json:"runas,omitempty"`              // Target runas user/group (if command spec check)
+	Tags              string   `json:"tags,omitempty"`               // Sudoers command tags/options (e.g. "NOPASSWD: SETENV:")
+	Command           string   `json:"command,omitempty"`            // Command path involved (if command spec check)
+	SourceLine        string   `json:"source_line,omitempty"`        // Verbatim parsed source rule line when available
+	DefaultsScope     string   `json:"defaults_scope,omitempty"`     // Explicit scoped Defaults directive prefix (e.g. "Defaults@web01", "Defaults:alice")
+	InheritedDefaults string   `json:"inherited_defaults,omitempty"` // Applicable Defaults directive(s) modifying rule behavior (e.g. "Defaults !authenticate")
+	Context           string   `json:"context,omitempty"`            // Location/file information if available
+	Line              int      `json:"line,omitempty"`               // Line number in source policy if available
+	Remediation       string   `json:"remediation"`                  // How to fix the finding
+	RemediationCode   string   `json:"remediation_code,omitempty"`   // Concrete command(s) to run or secure sudoers configuration snippet
+	ExploitPoC        string   `json:"exploit_poc,omitempty"`        // Reference command illustrating the capability
+	Compliance        []string `json:"compliance,omitempty"`         // Compliance references (e.g. ANSSI-BP-028, CIS)
+	Fingerprint       string   `json:"fingerprint,omitempty"`        // Deterministic baseline identity hash
+	Exploitability    string   `json:"exploitability,omitempty"`     // "ACTIVE", "LATENT", "CONSTRAINED", "PATCHED_BACKPORT"
+	Suppressed        bool     `json:"suppressed,omitempty"`         // Whether the finding was suppressed by policy config
+	SuppressionReason string   `json:"suppression_reason,omitempty"` // Audit rationale when Suppressed is true
+}
+
+// AuditOptions configures optional policy-audit behaviors without altering
+// default oracle-compatible RunAudit semantics.
+type AuditOptions struct {
+	DropInMode          bool             // Suppress global missing-Defaults rules for standalone drop-in scans
+	SubcommandAwareGTFO bool             // Downgrade pinned non-interactive GTFObins subcommands
+	CheckShadowing      bool             // Enable SUDO-CMD-015 last-match-wins shadowing analysis
+	Now                 func() time.Time // When non-nil, enables SUDO-CMD-016 expired NOTAFTER auditing
+}
+
+// GlobalMissingDefaultRuleIDs lists Defaults audit rule IDs triggered by omitted global
+// Defaults that are expected to live in /etc/sudoers rather than standalone drop-ins.
+var GlobalMissingDefaultRuleIDs = map[string]bool{
+	"SUDO-DEF-001": true,
+	"SUDO-DEF-003": true,
+	"SUDO-DEF-007": true,
+	"SUDO-DEF-008": true,
+	"SUDO-DEF-009": true,
+	"SUDO-DEF-010": true,
+	"SUDO-DEF-011": true,
+	"SUDO-DEF-017": true,
+}
+
+// ComputeFingerprint computes a stable SHA-256 hex digest identifying a finding across
+// line shifts and working-directory changes.
+func ComputeFingerprint(f Finding) string {
+	ctx := strings.ReplaceAll(strings.TrimSpace(f.Context), "\\", "/")
+	baseCtx := ""
+	if ctx != "" && !strings.EqualFold(ctx, "stdin") {
+		baseCtx = path.Base(ctx)
+	}
+	payload := strings.Join([]string{
+		strings.TrimSpace(f.ID),
+		strings.TrimSpace(f.User),
+		strings.TrimSpace(f.Host),
+		strings.TrimSpace(f.Runas),
+		strings.TrimSpace(f.Command),
+		strings.TrimSpace(f.Title),
+		baseCtx,
+	}, "|")
+	sum := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(sum[:])
+}
+
+// PopulateFingerprints sets Fingerprint via ComputeFingerprint on every finding that
+// does not already have one assigned.
+func PopulateFingerprints(findings []Finding) {
+	for i := range findings {
+		if findings[i].Fingerprint == "" {
+			findings[i].Fingerprint = ComputeFingerprint(findings[i])
+		}
+	}
 }
 
 // CountBySeverity returns a map of severity levels to their counts across one or more finding slices.
@@ -103,11 +169,92 @@ func HasSeverityAtLeast(minSeverity Severity, findingSlices ...[]Finding) bool {
 	return false
 }
 
-// SortFindingsBySeverity sorts findings in-place by severity (CRITICAL first).
+// CompareFindings defines a strict, deterministic total ordering for findings:
+// highest severity first, then canonical source location, rule ID, rule attributes,
+// and descriptive fields so reports are byte-for-byte reproducible regardless of input order.
+func CompareFindings(a, b Finding) int {
+	return cmp.Or(
+		cmp.Compare(a.Severity.Order(), b.Severity.Order()),
+		strings.Compare(a.Context, b.Context),
+		cmp.Compare(a.Line, b.Line),
+		strings.Compare(a.ID, b.ID),
+		strings.Compare(a.User, b.User),
+		strings.Compare(a.Host, b.Host),
+		strings.Compare(a.Runas, b.Runas),
+		strings.Compare(a.Tags, b.Tags),
+		strings.Compare(a.Command, b.Command),
+		strings.Compare(a.Title, b.Title),
+		strings.Compare(a.Description, b.Description),
+		strings.Compare(a.SourceLine, b.SourceLine),
+		strings.Compare(a.DefaultsScope, b.DefaultsScope),
+		strings.Compare(a.InheritedDefaults, b.InheritedDefaults),
+		strings.Compare(a.Fingerprint, b.Fingerprint),
+	)
+}
+
+// canonicalRuleTitles maps rule IDs that can have dynamic or variant per-finding titles
+// to a stable, canonical rule summary shared across HTML, SARIF, and Fleet summaries.
+var canonicalRuleTitles = map[string]string{
+	"SUDO-GTFO-001":       "Permitted Binary in GTFObins Catalog",
+	"SUDO-GTFO-002":       "Passwordless Permitted Binary in GTFObins Catalog",
+	"SUDO-GTFO-003":       "Mitigated Permitted Binary in GTFObins Catalog",
+	"SUDO-DEF-001":        "Missing or Empty secure_path Configuration",
+	"SUDO-DEF-002":        "Dangerous Path in secure_path Configuration",
+	"SUDO-DEF-003":        "Missing or Disabled use_pty",
+	"SUDO-DEF-004":        "Dangerous Environment Variables Preserved (env_keep / env_check)",
+	"SUDO-DEF-005":        "visiblepw Flag Enabled",
+	"SUDO-DEF-006":        "pwfeedback Flag Enabled",
+	"SUDO-DEF-007":        "Missing or Disabled noexec",
+	"SUDO-DEF-008":        "Missing or Disabled requiretty",
+	"SUDO-DEF-009":        "Missing or Weak umask Configuration",
+	"SUDO-DEF-010":        "Missing or Disabled ignore_dot",
+	"SUDO-DEF-011":        "Missing or Disabled env_reset",
+	"SUDO-DEF-012":        "Password Authentication Disabled (!authenticate)",
+	"SUDO-DEF-013":        "Environment Override Permitted (setenv)",
+	"SUDO-DEF-014":        "Insecure sudoedit Symlink or Directory Configuration",
+	"SUDO-DEF-015":        "Weak Sudo Authentication Timeout or Credential Cache Scope",
+	"SUDO-DEF-016":        "Deprecated Chroot (runchroot) or Unrestricted Working Directory (runcwd=*)",
+	"SUDO-DEF-017":        "Missing or Disabled Sudo Log File (logfile)",
+	"SUDO-DEF-018":        "Non-Invoker Password Prompt Enabled (rootpw/targetpw/runaspw)",
+	"SUDO-CMD-001":        "Negated Command Policy",
+	"SUDO-CMD-002":        "Full Root Privileges Allowed (ALL)",
+	"SUDO-CMD-003":        "Passwordless Full Root Privileges Allowed (NOPASSWD: ALL)",
+	"SUDO-CMD-004":        "Wildcard in Command Definition",
+	"SUDO-CMD-005":        "Passwordless Specific Command Execution Allowed (NOPASSWD)",
+	"SUDO-CMD-006":        "Missing Command Argument Restrictions",
+	"SUDO-CMD-007":        "Direct Text Editor Execution via Sudo",
+	"SUDO-CMD-008":        "Negated User, Host, or Runas Specification",
+	"SUDO-CMD-009":        "Dangerous Per-Command Option or Tag",
+	"SUDO-CMD-010":        "sudoedit Permitted on Sensitive System File",
+	"SUDO-CMD-011":        "Relative or Temporary/Writable Command Path",
+	"SUDO-CMD-012":        "Weak Cryptographic Digest on Command (SHA-224)",
+	"SUDO-CMD-013":        "Missing or Incomplete SELinux Context Elevation on Administrator Rule",
+	"SUDO-CMD-014":        "Directory Execution Permitted in Sudoers",
+	"SUDO-CMD-015":        "Shadowed or Overridden Sudoers Rule",
+	"SUDO-CMD-016":        "Expired or Inverted Sudoers Validity Window (NOTBEFORE/NOTAFTER)",
+	"SUDO-SYS-PERM-012":   "Insecure Permitted Sudo Target Executable Permissions or Ownership",
+	"SUDO-SYS-PERM-013":   "Insecure Permitted Sudo Target Parent Directory Permissions or Ownership",
+	"SUDO-SYS-PERM-014":   "Sudo Binary Not Restricted to Dedicated Group",
+	"SUDO-SYS-ID-001":     "Nonexistent or Orphaned User/Group Referenced in Sudoers",
+	"SUDO-SYS-SCRIPT-001": "Privileged Wrapper Script Uses Unsafe PATH or env Shebang",
+	"SUDO-SYS-SCRIPT-002": "Privileged Wrapper Script Argument Injection Sink",
+	"SUDO-SYS-SCRIPT-003": "Privileged Wrapper Script Sources Untrusted Path or Interpreter",
+}
+
+// CanonicalRuleTitle returns a stable, rule-level title for ruleID so summary
+// tables and tool metadata do not vary with per-finding dynamic titles.
+// Unknown rule IDs fall back to fallbackTitle.
+func CanonicalRuleTitle(ruleID, fallbackTitle string) string {
+	if title, ok := canonicalRuleTitles[strings.TrimSpace(ruleID)]; ok {
+		return title
+	}
+	return strings.TrimSpace(fallbackTitle)
+}
+
+// SortFindingsBySeverity sorts findings in-place by severity (CRITICAL first)
+// with deterministic tie-breakers across location, rule ID, and finding fields.
 func SortFindingsBySeverity(findings []Finding) {
-	slices.SortStableFunc(findings, func(a, b Finding) int {
-		return a.Severity.Order() - b.Severity.Order()
-	})
+	slices.SortStableFunc(findings, CompareFindings)
 }
 
 // DigestList represents one or more cryptographic digests in cvtsudoers JSON,
@@ -291,6 +438,7 @@ type UserSpec struct {
 	CmndSpecs []CmndSpec `json:"Cmnd_Specs"`
 	File      string     `json:"-"`
 	Line      int        `json:"-"`
+	RawLine   string     `json:"-"`
 }
 
 // DefaultBinding defines options bound to specific users, groups, hosts, or commands.
@@ -299,6 +447,7 @@ type DefaultBinding struct {
 	Options []Option `json:"Options"`
 	File    string   `json:"-"`
 	Line    int      `json:"-"`
+	RawLine string   `json:"-"`
 }
 
 // SudoersPolicy represents the parsed JSON structure of a sudoers policy.

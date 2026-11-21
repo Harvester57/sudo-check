@@ -8,7 +8,8 @@
         { "requiretty": true },
         { "umask": "0077" },
         { "ignore_dot": true },
-        { "env_reset": true }
+        { "env_reset": true },
+        { "logfile": "/var/log/sudo.log" }
       ]
     }
   ],
