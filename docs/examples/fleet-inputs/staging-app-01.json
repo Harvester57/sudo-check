@@ -1,0 +1,167 @@
+{
+  "policy_findings": [
+    {
+      "id": "SUDO-DEF-012",
+      "title": "Password Authentication Disabled in Scoped Defaults (!authenticate)",
+      "description": "Scoped Defaults for [ops] sets '!authenticate', disabling password prompts for all matching rules.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "source_line": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 2,
+      "remediation": "Remove '!authenticate' from Defaults for [ops].",
+      "remediation_code": "Defaults:ops authenticate",
+      "compliance": [
+        "CIS-5.2.5"
+      ],
+      "fingerprint": "0999b21053f439a17ded1ce4a44df7bac7df3a7aac8f5425f10b8a481babc3a6"
+    },
+    {
+      "id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: less (command)",
+      "description": "The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'command' capability. This enables immediate privilege escalation.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/less /var/log/syslog",
+      "source_line": "ops ALL=(root) /usr/bin/less /var/log/syslog",
+      "inherited_defaults": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 3,
+      "remediation": "Remove this binary from sudoers or replace it with a tightly scoped wrapper script.",
+      "remediation_code": "# Enforce NOEXEC and explicit arguments, or replace with a dedicated wrapper script:\nops ALL = (root) PASSWD: NOEXEC: /usr/bin/less /var/log/syslog",
+      "exploit_poc": "LESSOPEN='/path/to/command # %s' less /etc/hosts",
+      "compliance": [
+        "MITRE-T1548.003"
+      ],
+      "fingerprint": "64ca34aef48e03abec7ca3a8286eb14e2177642cd97eadf8be33cec86fbbff8b"
+    },
+    {
+      "id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: less (file-read)",
+      "description": "The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability. This enables immediate privilege escalation.\nGTFObins Context: Inherits file-read behavior from vi.\nThis can be used to read another file, e.g., when invoked as a pager with some fixed content.\nThis can be used to read another file.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/less /var/log/syslog",
+      "source_line": "ops ALL=(root) /usr/bin/less /var/log/syslog",
+      "inherited_defaults": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 3,
+      "remediation": "Remove this binary from sudoers or replace it with a tightly scoped wrapper script.",
+      "remediation_code": "# Replace direct 'less' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):\nops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-less-wrapper.sh \"\"",
+      "exploit_poc": "less /path/to/input-file\n\nless /etc/hosts\n:e /path/to/input-file\n\nLESSOPEN='echo /path/to/input-file # %s' less /etc/hosts\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi /path/to/input-file",
+      "compliance": [
+        "MITRE-T1548.003"
+      ],
+      "fingerprint": "ee8dde840b9acea52c1f3434a24ac5e509f3447522cfc850298f42fd638ade71"
+    },
+    {
+      "id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: less (file-write)",
+      "description": "The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'file-write' capability. This enables immediate privilege escalation.\nGTFObins Context: Inherits file-write behavior from vi.\nWhere '^[' is the escape key.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/less /var/log/syslog",
+      "source_line": "ops ALL=(root) /usr/bin/less /var/log/syslog",
+      "inherited_defaults": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 3,
+      "remediation": "Remove this binary from sudoers or replace it with a tightly scoped wrapper script.",
+      "remediation_code": "# Replace direct 'less' (file-write) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):\nops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-less-wrapper.sh \"\"",
+      "exploit_poc": "echo DATA | less\ns/path/to/output-file\nq\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi /path/to/output-file\niDATA\n^[\nw",
+      "compliance": [
+        "MITRE-T1548.003"
+      ],
+      "fingerprint": "2b0809883e616dc87534811549671b4a981ad5365f26ea25f698f8c11116cc74"
+    },
+    {
+      "id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: less (shell)",
+      "description": "The user(s) [ops] can run '/usr/bin/less /var/log/syslog' via sudo as [root] without a password (NOPASSWD) with the 'shell' capability. This enables immediate privilege escalation.\nGTFObins Context: Inherits shell behavior from vi.\nThe optional 'reset' command is needed to receive the echo back of the typed keystrokes.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/less /var/log/syslog",
+      "source_line": "ops ALL=(root) /usr/bin/less /var/log/syslog",
+      "inherited_defaults": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 3,
+      "remediation": "Remove this binary from sudoers or replace it with a tightly scoped wrapper script.",
+      "remediation_code": "# Enforce NOEXEC and explicit arguments, or replace with a dedicated wrapper script:\nops ALL = (root) PASSWD: NOEXEC: /usr/bin/less /var/log/syslog",
+      "exploit_poc": "less /etc/hosts\n!/bin/sh\n\nLESSOPEN=\"/bin/sh -s 1>&0 2>&0 # %s\" less /etc/hosts\nreset\n\nVISUAL='/bin/sh -s --' less /etc/hosts\nv\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi -c ':!/bin/sh' /dev/null\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi -c ':shell'\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi -c ':set shell=/bin/sh | shell'\n\n# Via vi (trigger with less):\nless /etc/hosts\nv\n# From vi:\nvi -c :terminal /bin/sh",
+      "compliance": [
+        "MITRE-T1548.003"
+      ],
+      "fingerprint": "c3e8eef4033a49dc8b48f8ec3bfe840dcdadb514dc8df594ec0401fed23ecb68"
+    },
+    {
+      "id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: cat (file-read)",
+      "description": "The user(s) [ops] can run '/usr/bin/cat /var/log/*' via sudo as [root] without a password (NOPASSWD) with the 'file-read' capability. This enables immediate privilege escalation.",
+      "severity": "CRITICAL",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/cat /var/log/*",
+      "source_line": "ops ALL=(root) /usr/bin/cat /var/log/*",
+      "inherited_defaults": "Defaults:ops !authenticate",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 4,
+      "remediation": "Remove this binary from sudoers or replace it with a tightly scoped wrapper script.",
+      "remediation_code": "# Replace direct 'cat' (file-read) access with a root-owned wrapper script (EXEC: required when global Defaults noexec is active):\nops ALL = (root) PASSWD: EXEC: sha256:<digest> /usr/local/sbin/safe-cat-wrapper.sh \"\"",
+      "exploit_poc": "cat /path/to/input-file",
+      "compliance": [
+        "MITRE-T1548.003"
+      ],
+      "fingerprint": "749abefddfe83c359c6a854fe10fae096a0f4ec95d7941c9e6bbccc54d688b5d"
+    },
+    {
+      "id": "SUDO-CMD-004",
+      "title": "Wildcard in Command Definition",
+      "description": "The command '/usr/bin/cat /var/log/*' allowed for user(s) [ops] contains wildcards. Arguments matching wildcards in sudoers can often be bypassed using directory traversals (e.g. '/var/log/../../etc/shadow') or option injection.",
+      "severity": "MEDIUM",
+      "user": "ops",
+      "host": "ALL",
+      "runas": "root",
+      "command": "/usr/bin/cat /var/log/*",
+      "source_line": "ops ALL=(root) /usr/bin/cat /var/log/*",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 4,
+      "remediation": "Avoid wildcards in command paths. Use specific paths or write wrapper scripts that validate inputs before executing commands.",
+      "remediation_code": "ops ALL = (root) /usr/bin/cat /var/log/explicit_target",
+      "compliance": [
+        "ANSSI-BP-028 R43"
+      ],
+      "fingerprint": "76c5a4459125dc84868c0581bd3ddf8977a944889f179e2e419f153de9f67cf4"
+    },
+    {
+      "id": "SUDO-CMD-005",
+      "title": "Passwordless Specific Command Execution Allowed (NOPASSWD)",
+      "description": "The user(s) [backup] are permitted to run the specific command '/usr/local/sbin/backup.sh \"\"' as [root] without entering a password (NOPASSWD). While restricted to this binary, any command running passwordless expands the local attack surface if it has argument parsing or script vulnerabilities.",
+      "severity": "LOW",
+      "user": "backup",
+      "host": "ALL",
+      "runas": "root",
+      "tags": "NOPASSWD:",
+      "command": "/usr/local/sbin/backup.sh \"\"",
+      "source_line": "backup ALL=(root) NOPASSWD: /usr/local/sbin/backup.sh \"\"",
+      "context": "docs/examples/policy/sudoers.d/20-ops",
+      "line": 6,
+      "remediation": "Ensure that passwordless privileges are strictly necessary. If possible, require authentication or implement strict input validation inside target wrapper scripts.",
+      "remediation_code": "backup ALL = (root) PASSWD: NOEXEC: /usr/local/sbin/backup.sh \"\"",
+      "compliance": [
+        "CIS-5.2.4"
+      ],
+      "fingerprint": "a50a05aff24c2e0e9bee1553cf9c4862705d4604188d8b15e77b3a9c931b005d"
+    }
+  ],
+  "system_findings": [],
+  "hostname": "staging-app-01",
+  "sudo_version": "1.9.16p2"
+}

@@ -1,0 +1,6 @@
+# Operations and backup drop-in
+Defaults:ops !authenticate
+ops ALL=(root) /usr/bin/less /var/log/syslog
+ops ALL=(root) /usr/bin/cat /var/log/*
+backup ALL=(root) PASSWD: /usr/local/sbin/backup.sh ""
+backup ALL=(root) NOPASSWD: /usr/local/sbin/backup.sh ""

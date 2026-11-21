@@ -1,0 +1,11 @@
+# Example /etc/sudoers policy for sudo-check documentation
+Defaults env_reset
+Defaults env_keep += "LD_PRELOAD HTTP_PROXY"
+Defaults visiblepw
+Defaults umask=0022
+Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/tmp"
+
+root ALL=(ALL:ALL) ALL
+%wheel ALL=(ALL) ALL
+
+@includedir sudoers.d

@@ -1,0 +1,4 @@
+# Application deployment drop-in
+Cmnd_Alias NGINX_OPS = /usr/bin/systemctl status nginx.service, /usr/bin/systemctl restart nginx.service
+deploy ALL=(root) NOPASSWD: NGINX_OPS
+deploy ALL=(root) /usr/bin/vim /etc/nginx/nginx.conf

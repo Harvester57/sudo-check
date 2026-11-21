@@ -1,0 +1,248 @@
+{
+  "host_count": 3,
+  "total_findings": 66,
+  "severity_counts": {
+    "CRITICAL": 29,
+    "HIGH": 24,
+    "INFO": 2,
+    "LOW": 4,
+    "MEDIUM": 7
+  },
+  "host_summaries": [
+    {
+      "hostname": "prod-web-01",
+      "source_file": "docs/examples/fleet-inputs/prod-web-01.json",
+      "sudo_version": "1.9.15p5",
+      "critical": 15,
+      "high": 15,
+      "medium": 6,
+      "low": 3,
+      "info": 2,
+      "total": 41,
+      "highest_severity": "CRITICAL"
+    },
+    {
+      "hostname": "prod-db-01",
+      "source_file": "docs/examples/fleet-inputs/prod-db-01.json",
+      "sudo_version": "1.9.16p2",
+      "critical": 8,
+      "high": 9,
+      "medium": 0,
+      "low": 0,
+      "info": 0,
+      "total": 17,
+      "highest_severity": "CRITICAL"
+    },
+    {
+      "hostname": "staging-app-01",
+      "source_file": "docs/examples/fleet-inputs/staging-app-01.json",
+      "sudo_version": "1.9.16p2",
+      "critical": 6,
+      "high": 0,
+      "medium": 1,
+      "low": 1,
+      "info": 0,
+      "total": 8,
+      "highest_severity": "CRITICAL"
+    }
+  ],
+  "rule_prevalence": [
+    {
+      "rule_id": "SUDO-GTFO-002",
+      "title": "Passwordless Dangerous Sudo Binary allowed: cat (file-read)",
+      "severity": "CRITICAL",
+      "host_count": 3,
+      "total_count": 26,
+      "affected_hosts": [
+        "prod-db-01",
+        "prod-web-01",
+        "staging-app-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-012",
+      "title": "Password Authentication Disabled in Scoped Defaults (!authenticate)",
+      "severity": "CRITICAL",
+      "host_count": 2,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01",
+        "staging-app-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-004",
+      "title": "Dangerous Environment Variables Preserved (env_keep)",
+      "severity": "CRITICAL",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-GTFO-001",
+      "title": "Dangerous Sudo Binary allowed: vim (bind-shell)",
+      "severity": "HIGH",
+      "host_count": 2,
+      "total_count": 16,
+      "affected_hosts": [
+        "prod-db-01",
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-007",
+      "title": "Direct Text Editor Execution via Sudo",
+      "severity": "HIGH",
+      "host_count": 2,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-db-01",
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-002",
+      "title": "Full Root Privileges Allowed",
+      "severity": "HIGH",
+      "host_count": 1,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-009",
+      "title": "Environment Override Permitted on Command (SETENV)",
+      "severity": "HIGH",
+      "host_count": 1,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-002",
+      "title": "Dangerous path in secure_path",
+      "severity": "HIGH",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-005",
+      "title": "visiblepw Flag Enabled",
+      "severity": "HIGH",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-004",
+      "title": "Wildcard in Command Definition",
+      "severity": "MEDIUM",
+      "host_count": 2,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01",
+        "staging-app-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-015",
+      "title": "Shadowed or Overridden Sudoers Rule",
+      "severity": "MEDIUM",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-003",
+      "title": "Missing or Disabled use_pty",
+      "severity": "MEDIUM",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-007",
+      "title": "Missing or Disabled noexec",
+      "severity": "MEDIUM",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-009",
+      "title": "Weak umask Configuration",
+      "severity": "MEDIUM",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-010",
+      "title": "Missing or Disabled ignore_dot",
+      "severity": "MEDIUM",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-005",
+      "title": "Passwordless Specific Command Execution Allowed (NOPASSWD)",
+      "severity": "LOW",
+      "host_count": 2,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01",
+        "staging-app-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-008",
+      "title": "Missing or Disabled requiretty",
+      "severity": "LOW",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-DEF-017",
+      "title": "Missing or Disabled Sudo Log File (logfile)",
+      "severity": "LOW",
+      "host_count": 1,
+      "total_count": 1,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    },
+    {
+      "rule_id": "SUDO-CMD-013",
+      "title": "Missing SELinux Context Elevation on Administrator Rule (TYPE/ROLE)",
+      "severity": "INFO",
+      "host_count": 1,
+      "total_count": 2,
+      "affected_hosts": [
+        "prod-web-01"
+      ]
+    }
+  ]
+}

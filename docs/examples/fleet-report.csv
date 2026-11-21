@@ -1,0 +1,4 @@
+hostname,sudo_version,critical,high,medium,low,info,total,highest_severity,source_file
+prod-web-01,1.9.15p5,15,15,6,3,2,41,CRITICAL,docs/examples/fleet-inputs/prod-web-01.json
+prod-db-01,1.9.16p2,8,9,0,0,0,17,CRITICAL,docs/examples/fleet-inputs/prod-db-01.json
+staging-app-01,1.9.16p2,6,0,1,1,0,8,CRITICAL,docs/examples/fleet-inputs/staging-app-01.json
