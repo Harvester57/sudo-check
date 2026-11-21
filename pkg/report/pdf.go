@@ -4,15 +4,23 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sudo-check/internal/buildinfo"
 	"sudo-check/pkg/audit"
 	"time"
 
 	"github.com/go-pdf/fpdf"
 )
 
-// WritePDFReport generates a styled PDF document representing the audit results.
+// pdfDeterministicEpoch pins PDF internal metadata timestamps so repeated runs
+// over the same AuditResult produce byte-for-byte identical output.
+var pdfDeterministicEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// WritePDFReport generates a deterministic, styled PDF document representing the audit results.
 func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	pdf := fpdf.New("P", "mm", "A4", "")
+	pdf.SetCatalogSort(true)
+	pdf.SetCreationDate(pdfDeterministicEpoch)
+	pdf.SetModificationDate(pdfDeterministicEpoch)
 	pdf.SetMargins(20, 20, 20)
 	pdf.SetAutoPageBreak(true, 20)
 	tr := pdf.UnicodeTranslatorFromDescriptor("")
@@ -56,7 +64,7 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	pdf.SetTextColor(30, 41, 59)
 	host := result.Hostname
 	if host == "" {
-		host = "localhost"
+		host = "Offline Policy Scan"
 	}
 	pdf.Cell(0, 8, cleanText(host))
 	pdf.Ln(6)
@@ -68,17 +76,21 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 	pdf.SetTextColor(30, 41, 59)
 	sudoVer := result.SudoVersion
 	if sudoVer == "" {
-		sudoVer = "Unknown"
+		sudoVer = "N/A"
 	}
 	pdf.Cell(0, 8, cleanText(sudoVer))
 	pdf.Ln(6)
 
 	pdf.SetFont("Helvetica", "B", 10)
 	pdf.SetTextColor(100, 116, 139)
-	pdf.Cell(30, 8, "Generated On:")
+	pdf.Cell(30, 8, "Tool Version:")
 	pdf.SetFont("Helvetica", "", 10)
 	pdf.SetTextColor(30, 41, 59)
-	pdf.Cell(0, 8, time.Now().Format("2006-01-02 15:04:05 MST"))
+	toolVer := "sudo-check"
+	if buildinfo.Version != "" {
+		toolVer = "sudo-check " + buildinfo.Version
+	}
+	pdf.Cell(0, 8, cleanText(toolVer))
 	pdf.Ln(15)
 
 	// Divider
@@ -174,35 +186,42 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 			r, g, b = 59, 130, 246
 		}
 
-		// Drawing a neat card header
+		// Measure full wrapped title so card header never truncates long titles
+		pdf.SetFont("Helvetica", "B", 10)
+		cleanTitle := cleanText(fmt.Sprintf("%s: %s", f.ID, f.Title))
+		titleLines := pdf.SplitLines([]byte(cleanTitle), 120.0)
+		if len(titleLines) == 0 {
+			titleLines = [][]byte{[]byte(cleanTitle)}
+		}
+		headerHeight := float64(len(titleLines))*5.0 + 5.0
+		if headerHeight < 10.0 {
+			headerHeight = 10.0
+		}
+		if pdf.GetY()+headerHeight > 270 {
+			pdf.AddPage()
+		}
+		headerY := pdf.GetY()
+
+		// Drawing a neat card header sized to fit the wrapped title
 		pdf.SetFillColor(248, 250, 252)
 		pdf.SetDrawColor(226, 232, 240)
-		pdf.Rect(20, pdf.GetY(), 170, 10, "DF")
+		pdf.Rect(20, headerY, 170, headerHeight, "DF")
 
 		// Draw severity colored tag on the left
 		pdf.SetFillColor(r, g, b)
-		pdf.Rect(20, pdf.GetY(), 4, 10, "F")
+		pdf.Rect(20, headerY, 4, headerHeight, "F")
 
-		pdf.SetY(pdf.GetY() + 1)
-		pdf.SetX(26)
+		pdf.SetXY(26, headerY+2.5)
 		pdf.SetFont("Helvetica", "B", 10)
 		pdf.SetTextColor(30, 41, 59)
-		titleRunes := []rune(fmt.Sprintf("%s: %s", f.ID, f.Title))
-		cleanTitle := cleanText(string(titleRunes))
-		if pdf.GetStringWidth(cleanTitle) > 120.0 {
-			for len(titleRunes) > 0 && pdf.GetStringWidth(cleanText(string(titleRunes)+"...")) > 120.0 {
-				titleRunes = titleRunes[:len(titleRunes)-1]
-			}
-			cleanTitle = cleanText(string(titleRunes) + "...")
-		}
-		pdf.Cell(120, 8, cleanTitle)
+		pdf.MultiCell(120, 5, cleanTitle, "", "L", false)
 
-		// Severity label right aligned
-		pdf.SetX(150)
+		// Severity label right aligned at the top of the card header
+		pdf.SetXY(150, headerY+1)
 		pdf.SetFont("Helvetica", "B", 9)
 		pdf.SetTextColor(r, g, b)
 		pdf.CellFormat(35, 8, cleanText(string(f.Severity)), "", 0, "R", false, 0, "")
-		pdf.Ln(11)
+		pdf.SetY(headerY + headerHeight + 2)
 
 		// Metadata Info if available (User, Host, Runas, Command, Context, Compliance)
 		var metaParts []string
@@ -215,8 +234,17 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 		if f.Runas != "" {
 			metaParts = append(metaParts, fmt.Sprintf("RunAs: %s", f.Runas))
 		}
+		if f.Tags != "" {
+			metaParts = append(metaParts, fmt.Sprintf("Tags: %s", f.Tags))
+		}
+		if f.InheritedDefaults != "" {
+			metaParts = append(metaParts, fmt.Sprintf("Inherited Defaults: %s", f.InheritedDefaults))
+		}
 		if f.Command != "" {
 			metaParts = append(metaParts, fmt.Sprintf("Command: %s", f.Command))
+		}
+		if f.Exploitability != "" {
+			metaParts = append(metaParts, fmt.Sprintf("Exploitability: %s", f.Exploitability))
 		}
 		if f.Context != "" {
 			loc := f.Context
@@ -236,6 +264,16 @@ func WritePDFReport(result *audit.AuditResult, w io.Writer) error {
 			pdf.SetTextColor(100, 116, 139)
 			pdf.SetX(20)
 			pdf.MultiCell(170, 5, cleanText(strings.Join(metaParts, "  |  ")), "", "L", false)
+			pdf.Ln(2)
+		}
+
+		if f.SourceLine != "" {
+			pdf.SetFillColor(248, 250, 252)
+			pdf.SetDrawColor(203, 213, 225)
+			pdf.SetFont("Courier", "", 8.5)
+			pdf.SetTextColor(15, 23, 42)
+			pdf.SetX(20)
+			pdf.MultiCell(170, 5, cleanText("Source: "+f.SourceLine), "1", "L", true)
 			pdf.Ln(2)
 		}
 

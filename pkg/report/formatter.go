@@ -24,27 +24,56 @@ func GenerateReports(result *audit.AuditResult, formats []string, outputDir stri
 // GenerateReportsWithOptions generates all requested reports inside the target outputDir
 // with explicit control over terminal color output.
 func GenerateReportsWithOptions(result *audit.AuditResult, formats []string, outputDir string, noColor bool) (map[string]string, error) {
+	normalized := make([]string, 0, len(formats))
+	seen := make(map[string]bool, len(formats))
+	hasText := false
+	hasJSON := false
+	hasSarif := false
+	var fileOnly []string
+
+	for _, rawFormat := range formats {
+		norm := strings.ToLower(strings.TrimSpace(rawFormat))
+		switch norm {
+		case "text", "txt":
+			norm = "text"
+			hasText = true
+		case "json":
+			hasJSON = true
+		case "sarif":
+			hasSarif = true
+		case "html", "pdf":
+			if !seen[norm] {
+				fileOnly = append(fileOnly, norm)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported report format %q (supported: text, json, sarif, html, pdf)", rawFormat)
+		}
+		if !seen[norm] {
+			seen[norm] = true
+			normalized = append(normalized, norm)
+		}
+	}
+
+	if outputDir == "" && !hasText {
+		if hasJSON && hasSarif {
+			return nil, fmt.Errorf("cannot write multiple structured formats (json, sarif) to stdout; specify --output-dir (-o) or a single format")
+		}
+		if !hasJSON && !hasSarif && len(fileOnly) > 0 {
+			return nil, fmt.Errorf("report format(s) %s require --output-dir (-o)", strings.Join(fileOnly, ", "))
+		}
+	}
+
 	if outputDir != "" {
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create output directory: %w", err)
 		}
 	}
 
-	hasText := false
-	for _, f := range formats {
-		norm := strings.ToLower(strings.TrimSpace(f))
-		if norm == "text" || norm == "txt" {
-			hasText = true
-			break
-		}
-	}
-
 	generated := make(map[string]string)
 
-	for _, format := range formats {
-		format = strings.ToLower(strings.TrimSpace(format))
+	for _, format := range normalized {
 		switch format {
-		case "text", "txt":
+		case "text":
 			if outputDir != "" {
 				outPath := filepath.Join(outputDir, "report.txt")
 				if err := writeToFile(outPath, func(w *os.File) error {

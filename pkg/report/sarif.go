@@ -3,6 +3,8 @@ package report
 import (
 	"encoding/json"
 	"io"
+	"slices"
+	"strings"
 	"sudo-check/internal/buildinfo"
 	"sudo-check/pkg/audit"
 )
@@ -46,10 +48,18 @@ type SarifMultiformatText struct {
 }
 
 type SarifResult struct {
-	RuleID    string               `json:"ruleId"`
-	Message   SarifMultiformatText `json:"message"`
-	Level     string               `json:"level"` // "error", "warning", "note", "none"
-	Locations []SarifLocation      `json:"locations,omitempty"`
+	RuleID              string                 `json:"ruleId"`
+	Message             SarifMultiformatText   `json:"message"`
+	Level               string                 `json:"level"` // "error", "warning", "note", "none"
+	Locations           []SarifLocation        `json:"locations,omitempty"`
+	PartialFingerprints map[string]string      `json:"partialFingerprints,omitempty"`
+	Properties          *SarifResultProperties `json:"properties,omitempty"`
+}
+
+type SarifResultProperties struct {
+	Tags              string `json:"tags,omitempty"`
+	InheritedDefaults string `json:"inheritedDefaults,omitempty"`
+	Exploitability    string `json:"exploitability,omitempty"`
 }
 
 type SarifLocation struct {
@@ -61,30 +71,60 @@ type SarifPhysicalLocation struct {
 	Region           *SarifRegion          `json:"region,omitempty"`
 }
 
+type SarifArtifactContent struct {
+	Text string `json:"text,omitempty"`
+}
+
 type SarifRegion struct {
-	StartLine int `json:"startLine,omitempty"`
+	StartLine int                   `json:"startLine,omitempty"`
+	Snippet   *SarifArtifactContent `json:"snippet,omitempty"`
 }
 
 type SarifArtifactLocation struct {
 	URI string `json:"uri"`
 }
 
-// canonicalRuleTitles maps rule IDs that can have dynamic or variant per-finding titles
-// to a stable, canonical rule description for the SARIF driver.rules table.
-var canonicalRuleTitles = map[string]string{
-	"SUDO-GTFO-001": "Permitted Binary in GTFObins Catalog",
-	"SUDO-GTFO-002": "Passwordless Permitted Binary in GTFObins Catalog",
-	"SUDO-GTFO-003": "Mitigated Permitted Binary in GTFObins Catalog",
-	"SUDO-DEF-001":  "Missing or Empty secure_path Configuration",
-	"SUDO-DEF-009":  "Missing or Weak umask Configuration",
-	"SUDO-CMD-013":  "Missing or Incomplete SELinux Context Elevation on Administrator Rule",
+func canonicalRuleTitle(f audit.Finding) string {
+	return audit.CanonicalRuleTitle(f.ID, f.Title)
 }
 
-func canonicalRuleTitle(f audit.Finding) string {
-	if title, ok := canonicalRuleTitles[f.ID]; ok {
-		return title
+func isWindowsDrivePath(p string) bool {
+	if len(p) < 3 {
+		return false
 	}
-	return f.Title
+	c := p[0]
+	isAlpha := (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	return isAlpha && p[1] == ':' && p[2] == '/'
+}
+
+func normalizeSarifURI(raw string, defaultURI string) string {
+	uri := strings.TrimSpace(raw)
+	if uri == "" {
+		uri = defaultURI
+	}
+	uri = strings.ReplaceAll(uri, "\\", "/")
+	if strings.HasPrefix(uri, "file:///") {
+		rest := strings.TrimPrefix(uri, "file:///")
+		if isWindowsDrivePath(rest) {
+			return "file:///" + rest
+		}
+		rest = strings.TrimLeft(rest, "/")
+		if rest == "" {
+			return defaultURI
+		}
+		return rest
+	}
+	if isWindowsDrivePath(uri) {
+		return "file:///" + uri
+	}
+	uri = strings.TrimLeft(uri, "/")
+	for strings.HasPrefix(uri, "./") {
+		uri = strings.TrimPrefix(uri, "./")
+	}
+	if uri == "" {
+		return defaultURI
+	}
+	return uri
 }
 
 func mapSecuritySeverity(sev audit.Severity) string {
@@ -114,7 +154,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 	driver := SarifDriver{
 		Name:           "sudo-check",
 		Version:        buildinfo.Version,
-		InformationURI: "https://github.com/Harvester57/sudo-audit",
+		InformationURI: "https://github.com/Harvester57/sudo-check",
 		Rules:          []SarifRule{},
 	}
 
@@ -132,22 +172,26 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 		}
 	}
 
+	sysCopy := make([]audit.Finding, len(result.SystemFindings))
+	copy(sysCopy, result.SystemFindings)
+	audit.SortFindingsBySeverity(sysCopy)
+
+	polCopy := make([]audit.Finding, len(result.PolicyFindings))
+	copy(polCopy, result.PolicyFindings)
+	audit.SortFindingsBySeverity(polCopy)
+
 	results := []SarifResult{}
-	ruleMap := make(map[string]bool)
+	ruleIdxByID := make(map[string]int)
+	ruleBestSev := make(map[string]audit.Severity)
+	ruleTagSet := make(map[string]map[string]struct{})
 
 	addFindings := func(findings []audit.Finding, defaultURI string, category string) {
 		for _, f := range findings {
-			// Add rule metadata if not already present
-			if !ruleMap[f.ID] {
+			// Add or update rule metadata, preserving the highest severity and merging unique tags
+			if idx, exists := ruleIdxByID[f.ID]; !exists {
 				props := &SarifRuleProperties{
 					SecuritySeverity: mapSecuritySeverity(f.Severity),
 				}
-				if len(f.Compliance) > 0 {
-					tags := make([]string, len(f.Compliance))
-					copy(tags, f.Compliance)
-					props.Tags = tags
-				}
-
 				driver.Rules = append(driver.Rules, SarifRule{
 					ID: f.ID,
 					ShortDescription: SarifMultiformatText{
@@ -155,23 +199,36 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 					},
 					Properties: props,
 				})
-				ruleMap[f.ID] = true
+				ruleIdxByID[f.ID] = len(driver.Rules) - 1
+				ruleBestSev[f.ID] = f.Severity
+				ruleTagSet[f.ID] = make(map[string]struct{})
+			} else if f.Severity.Order() < ruleBestSev[f.ID].Order() {
+				ruleBestSev[f.ID] = f.Severity
+				driver.Rules[idx].Properties.SecuritySeverity = mapSecuritySeverity(f.Severity)
 			}
 
-			uri := defaultURI
-			if f.Context != "" {
-				uri = f.Context
+			for _, tag := range f.Compliance {
+				if trimmed := strings.TrimSpace(tag); trimmed != "" {
+					ruleTagSet[f.ID][trimmed] = struct{}{}
+				}
 			}
+
+			uri := normalizeSarifURI(f.Context, defaultURI)
 
 			physLoc := SarifPhysicalLocation{
 				ArtifactLocation: SarifArtifactLocation{
 					URI: uri,
 				},
 			}
-			if f.Line > 0 {
-				physLoc.Region = &SarifRegion{
+			srcLine := strings.TrimSpace(f.SourceLine)
+			if f.Line > 0 || srcLine != "" {
+				reg := &SarifRegion{
 					StartLine: f.Line,
 				}
+				if srcLine != "" {
+					reg.Snippet = &SarifArtifactContent{Text: srcLine}
+				}
+				physLoc.Region = reg
 			}
 
 			cleanRem, effectiveRemCode, _, _ := resolveFindingRemediationAndExploit(f, category)
@@ -180,7 +237,7 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 				msgText += "\nExample Fix:\n" + effectiveRemCode
 			}
 
-			results = append(results, SarifResult{
+			res := SarifResult{
 				RuleID: f.ID,
 				Message: SarifMultiformatText{
 					Text: msgText,
@@ -191,12 +248,43 @@ func WriteSarifReport(result *audit.AuditResult, w io.Writer) error {
 						PhysicalLocation: physLoc,
 					},
 				},
-			})
+			}
+			if f.Fingerprint != "" {
+				res.PartialFingerprints = map[string]string{
+					"sudoCheckFingerprint/v1": f.Fingerprint,
+				}
+			}
+			tags := strings.TrimSpace(f.Tags)
+			inherited := strings.TrimSpace(f.InheritedDefaults)
+			exploitability := strings.TrimSpace(f.Exploitability)
+			if tags != "" || inherited != "" || exploitability != "" {
+				res.Properties = &SarifResultProperties{
+					Tags:              tags,
+					InheritedDefaults: inherited,
+					Exploitability:    exploitability,
+				}
+			}
+			results = append(results, res)
 		}
 	}
 
-	addFindings(result.SystemFindings, "system-configuration", "SYSTEM")
-	addFindings(result.PolicyFindings, "file:///etc/sudoers", "POLICY")
+	addFindings(sysCopy, "system-configuration", "SYSTEM")
+	addFindings(polCopy, "etc/sudoers", "POLICY")
+
+	for i := range driver.Rules {
+		tagMap := ruleTagSet[driver.Rules[i].ID]
+		if len(tagMap) > 0 {
+			tags := make([]string, 0, len(tagMap))
+			for tag := range tagMap {
+				tags = append(tags, tag)
+			}
+			slices.Sort(tags)
+			driver.Rules[i].Properties.Tags = tags
+		}
+	}
+	slices.SortFunc(driver.Rules, func(a, b SarifRule) int {
+		return strings.Compare(a.ID, b.ID)
+	})
 
 	run := SarifRun{
 		Tool: SarifTool{

@@ -15,15 +15,13 @@ import (
 var update = flag.Bool("update", false, "update golden report files")
 
 // TestGoldenReports renders the shared dummy audit result through every
-// deterministic report writer and compares the output byte-for-byte against
-// the golden files in testdata/golden. Regenerate after intentional format
-// changes with:
+// report writer (text, json, sarif, html, pdf) and compares the output
+// byte-for-byte against the golden files in testdata/golden. Regenerate after
+// intentional format changes with:
 //
 //	go test ./pkg/report -update
-//
-// The PDF writer is excluded because it embeds the current timestamp.
 func TestGoldenReports(t *testing.T) {
-	// Pin buildinfo so the SARIF driver version is deterministic.
+	// Pin buildinfo so version metadata in SARIF, HTML, and PDF is deterministic.
 	origV, origC, origD := buildinfo.Version, buildinfo.Commit, buildinfo.Date
 	buildinfo.Set("v0.0.0-golden", "golden", "2026-01-01")
 	t.Cleanup(func() { buildinfo.Set(origV, origC, origD) })
@@ -40,6 +38,7 @@ func TestGoldenReports(t *testing.T) {
 		{"json", WriteJSONReport},
 		{"sarif", WriteSarifReport},
 		{"html", WriteHTMLReport},
+		{"pdf", WritePDFReport},
 	}
 
 	for _, w := range writers {

@@ -74,8 +74,17 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 		if f.Runas != "" {
 			sb.WriteString(fmt.Sprintf("  RunAs:       %s\n", f.Runas))
 		}
+		if f.Tags != "" {
+			sb.WriteString(fmt.Sprintf("  Tags:        %s\n", f.Tags))
+		}
+		if f.InheritedDefaults != "" {
+			sb.WriteString(fmt.Sprintf("  Defaults:    %s\n", f.InheritedDefaults))
+		}
 		if f.Command != "" {
 			sb.WriteString(fmt.Sprintf("  Command:     %s\n", f.Command))
+		}
+		if f.SourceLine != "" {
+			sb.WriteString(fmt.Sprintf("  Source Line: %s\n", f.SourceLine))
 		}
 		if f.Context != "" {
 			loc := f.Context
@@ -88,6 +97,9 @@ func WriteTextReportWithOptions(result *audit.AuditResult, w io.Writer, useColor
 		}
 		if len(f.Compliance) > 0 {
 			sb.WriteString(fmt.Sprintf("  Compliance:  %s\n", strings.Join(f.Compliance, ", ")))
+		}
+		if f.Exploitability != "" {
+			sb.WriteString(fmt.Sprintf("  Exploitability: %s\n", f.Exploitability))
 		}
 		sb.WriteString(fmt.Sprintf("  Description: %s\n", f.Description))
 

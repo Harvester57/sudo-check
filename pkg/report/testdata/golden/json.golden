@@ -24,6 +24,7 @@
       "description": "The sudoers policy does not define a 'secure_path'.",
       "severity": "HIGH",
       "remediation": "Add Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\" to sudoers.",
+      "remediation_code": "Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"",
       "compliance": [
         "CIS-5.2.4"
       ]
@@ -35,6 +36,7 @@
       "severity": "MEDIUM",
       "line": 12,
       "remediation": "Add 'Defaults umask=0077' to the sudoers file.",
+      "remediation_code": "Defaults umask=0077",
       "compliance": [
         "ANSSI-BP-028-R38"
       ]
@@ -68,6 +70,7 @@
       "context": "/etc/sudoers",
       "line": 1,
       "remediation": "Run 'chmod 0440 /etc/sudoers' to restrict write access.",
+      "remediation_code": "chmod 0440 /etc/sudoers",
       "exploit_poc": "echo 'ALL ALL=(ALL) NOPASSWD: ALL' \u003e\u003e /etc/sudoers",
       "compliance": [
         "CIS-5.2.3"

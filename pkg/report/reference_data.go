@@ -93,6 +93,7 @@ Defaults umask_override
 
 # --- 3. Authentication & Credential Cache Hardening (CIS 5.2.5-5.2.6 / DISA STIG) ---
 Defaults authenticate
+Defaults !rootpw, !targetpw, !runaspw
 Defaults !visiblepw
 Defaults !pwfeedback
 Defaults passwd_timeout=1
@@ -124,22 +125,24 @@ Runas_Alias DB_SVC_USER      = postgres
 
 # --- 7. Least-Privilege Rules with Explicit Arguments & SHA-256 Digest Pinning ---
 # ANSSI BP-028 R40: Prefer dedicated non-root target accounts where root is unnecessary.
+# ANSSI BP-028 R41: Shell wrapper scripts that execute external binaries require EXEC: to
+# override global Defaults noexec; mitigate via root ownership, fixed/zero arguments, and SHA-256 pinning.
 # ANSSI BP-028 R43: Pin exact arguments (or "" for zero arguments) and avoid wildcards (*).
 # Note: SHA-256 digest pinning is an integrity defense-in-depth measure; it is not part of ANSSI BP-028.
-WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: \
+WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: \
     sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 \
     /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""
 
-DB_OPERATORS PROD_DB_SERVERS = (DB_SVC_USER) PASSWD: NOEXEC: \
+DB_OPERATORS PROD_DB_SERVERS = (DB_SVC_USER) PASSWD: EXEC: \
     sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3 \
     /usr/local/sbin/sudo-wrappers/pg-ControlledCheck.sh --status
 
 # Controlled service status inspection via dedicated root-owned wrapper (avoids GTFObins systemctl pager inheritance):
-WEB_OPERATORS PROD_WEB_SERVERS = (root) PASSWD: NOEXEC: \
+WEB_OPERATORS PROD_WEB_SERVERS = (root) PASSWD: EXEC: \
     sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae \
     /usr/local/sbin/sudo-wrappers/nginx-service-status.sh ""
 
-# Read-only diagnostic command with explicit argument constraint:
+# Read-only diagnostic command with explicit argument constraint (direct compiled binary keeps NOEXEC:):
 SECURITY_AUDIT ALL = (root) PASSWD: NOEXEC: \
     /usr/sbin/auditctl -s
 
@@ -182,7 +185,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuoteFR: "R38 - Créer un groupe dédié à l'utilisation de sudo : Un groupe dédié à l'utilisation de sudo doit être créé. Seuls les membres de ce groupe doivent avoir le droit d'exécuter sudo. Exemple : # ls -al /usr/bin/sudo → -rwsr-x---. 2 root sudogrp [...] /usr/bin/sudo.",
 					Rationale:       "sudo is a setuid root executable installed by default with open execution rights. Restricting execution to a dedicated group reduces the attack surface when the system or the binary itself is affected by exploitable vulnerabilities (e.g. CVE-2019-14287, CVE-2021-3156). A sudo binary that is writable by group or other, or not owned by root, defeats this restriction and allows immediate local root compromise.",
 					DirectivesCode:  "sudo chown root:root /usr/bin/sudo\nsudo chmod 4755 /usr/bin/sudo\n# Restrict execution to a dedicated group (example):\nsudo groupadd sudogrp\nsudo chown root:sudogrp /usr/bin/sudo\nsudo chmod 4750 /usr/bin/sudo",
-					RuleIDs:         []string{"SUDO-SYS-PERM-008", "SUDO-SYS-PERM-009", "SUDO-SYS-PERM-010"},
+					RuleIDs:         []string{"SUDO-SYS-PERM-008", "SUDO-SYS-PERM-009", "SUDO-SYS-PERM-010", "SUDO-SYS-PERM-014"},
 					ComplianceTags:  []string{"ANSSI-BP-028 R38"},
 					TemplateAnchor:  "tpl-filesystem-perms",
 				},
@@ -213,7 +216,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuote:   "R40 - Using unprivileged users as target for sudo commands: The targeted users of a rule should be, as much as possible, non privileged users (i.e.: non root). It is common that the command to be executed does not require an elevated privilege level (editing a file whose owner is not root, sending a signal to an unprivileged process, ...). In order to limit any attempt of privilege escalation through a command, it is better to apply regular user rights.",
 					VerbatimQuoteFR: "R40 - Utiliser des utilisateurs non privilégiés comme cible des commandes sudo : Les utilisateurs ciblés par une règle doivent être, autant que possible, des utilisateurs non privilégiés (c'est-à-dire non root). Il est fréquent que la commande à exécuter ne nécessite pas un niveau de privilège élevé ; afin de limiter toute tentative d'élévation de privilèges via une commande, il est préférable d'appliquer les droits de l'utilisateur régulier.",
 					Rationale:       "Running delegated commands as root when the task does not require it turns any argument-injection or binary flaw into a direct root compromise. Targeting a dedicated unprivileged service account contains the blast radius of a misused rule.",
-					DirectivesCode:  "Runas_Alias WEB_SVC_USER = www-data\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
+					DirectivesCode:  "Runas_Alias WEB_SVC_USER = www-data\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
 					RuleIDs:         []string{},
 					ComplianceTags:  []string{"ANSSI-BP-028 R40"},
 					TemplateAnchor:  "tpl-sudoers-baseline",
@@ -229,7 +232,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuote:   "R41 - Limiting the number of commands requiring the use of the EXEC directive: The commands requiring the execution of sub-processes, EXEC directive must be explicitly listed and their use should be reduced to a strict minimum. Functionally rich commands can be executed via sudo, like text editors (vi). They may allow execution of sub-commands in the environment created by sudo and thus enable a user to run other software with privileges not foreseen initially.",
 					VerbatimQuoteFR: "R41 - Limiter le nombre de commandes nécessitant l'utilisation de la directive EXEC : Les commandes nécessitant l'exécution de sous-processus (directive EXEC) doivent être explicitement listées et leur usage doit être réduit au strict minimum. Des commandes fonctionnellement riches, comme les éditeurs de texte (vi), peuvent permettre l'exécution de sous-commandes dans l'environnement créé par sudo.",
 					Rationale:       "The noexec default (R39) blocks child-process execution, but sudo can override the functions allowing execution of other software when a command genuinely requires sub-processes. Every EXEC-requiring command (editors, pagers, GTFObins binaries with shell or command capabilities) must be an explicit, minimal exception; otherwise users can spawn unanticipated privileged processes.",
-					DirectivesCode:  "# Keep EXEC-requiring commands an explicit, minimal exception list:\nCmnd_Alias EXEC_CMDS = /usr/bin/systemctl status app\n# Replace GTFObins-capable binaries with fixed-argument root-owned wrapper scripts:\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
+					DirectivesCode:  "# Keep EXEC-requiring commands an explicit, minimal exception list:\nCmnd_Alias EXEC_CMDS = /usr/bin/systemctl status app\n# Replace GTFObins-capable binaries with fixed-argument root-owned wrapper scripts (EXEC: overrides Defaults noexec for shell wrappers):\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
 					RuleIDs:         []string{"SUDO-GTFO-001", "SUDO-GTFO-002"},
 					ComplianceTags:  []string{"ANSSI-BP-028 R41"},
 					TemplateAnchor:  "tpl-wrapper-script",
@@ -245,7 +248,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuote:   "R42 - Banishing the negations in sudo policies: Policies applied by sudo through the sudoers file should not involve any negation. Specifying access right using negation, blacklist approach, is inefficient and can be easily circumvented. Example (to avoid absolutely, this rule can be easily circumvented): user ALL = ALL,!/bin/sh - just copy the binary /bin/sh to a different name to make it executable again through the rule directive ALL.",
 					VerbatimQuoteFR: "R42 - Proscrire les négations dans les politiques sudo : Les politiques appliquées par sudo via le fichier sudoers ne doivent comporter aucune négation. La spécification de droits par négation (approche par liste noire) est inefficace et peut être contournée facilement. Exemple (à proscrire absolument) : user ALL = ALL,!/bin/sh - il suffit de copier le binaire /bin/sh sous un autre nom pour pouvoir l'exécuter via la règle ALL.",
 					Rationale:       "Exclusion-based security controls using '!' are brittle: negated commands (e.g. 'ALL, !/bin/sh') are trivially bypassed by copying or linking binaries, and negated Runas or Host specifications have led to critical authorization bypasses (such as CVE-2019-14287 with UID -1 and CVE-2025-32462).",
-					DirectivesCode:  "# Define explicit positive aliases (zero '!' exclusions):\nUser_Alias  WEB_OPERATORS = %sudo_webops\nRunas_Alias WEB_SVC_USER  = www-data\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
+					DirectivesCode:  "# Define explicit positive aliases (zero '!' exclusions):\nUser_Alias  WEB_OPERATORS = %sudo_webops\nRunas_Alias WEB_SVC_USER  = www-data\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
 					RuleIDs:         []string{"SUDO-CMD-001", "SUDO-CMD-008"},
 					ComplianceTags:  []string{"ANSSI-BP-028 R42"},
 					TemplateAnchor:  "tpl-sudoers-baseline",
@@ -261,8 +264,8 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuote:   "R43 - Defining the arguments in sudo specifications: All commands in the sudoers configuration file must strictly specify the arguments allowed to be used for a given user. The use of * (wildcard) in the rules should be avoided as much as possible. The absence of arguments in a command must be specified by the presence of an empty chain (\"\"). Example: user ALL = dmesg \"\" - restrict the arguments in order to prevent the user from reading any arbitrary file through the --file option.",
 					VerbatimQuoteFR: "R43 - Définir les arguments dans les spécifications sudo : Toutes les commandes du fichier de configuration sudoers doivent préciser strictement les arguments autorisés pour un utilisateur donné. L'utilisation du joker * dans les règles doit être évitée autant que possible. L'absence d'arguments dans une commande doit être spécifiée par la présence d'une chaîne vide (\"\"). Exemple : user ALL = dmesg \"\".",
 					Rationale:       "Any argument can modify quite significantly the behavior of a program, whether regarding the realized operation (read, write, delete, ...) or accessed resources (path in a file system tree). When a command in sudoers has no argument specification, sudo permits arbitrary caller-supplied flags; wildcards (*) additionally match arbitrary flags and path traversal sequences.",
-					DirectivesCode:  "# Zero arguments allowed (explicit \"\"):\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"\n# Fixed argument allowlist:\nSECURITY_AUDIT ALL = (root) PASSWD: NOEXEC: /usr/sbin/auditctl -s",
-					RuleIDs:         []string{"SUDO-CMD-002", "SUDO-CMD-003", "SUDO-CMD-004", "SUDO-CMD-006"},
+					DirectivesCode:  "# Zero arguments allowed (explicit \"\"; EXEC: overrides Defaults noexec for shell wrappers per R41):\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"\n# Fixed argument allowlist (direct compiled binary keeps NOEXEC:):\nSECURITY_AUDIT ALL = (root) PASSWD: NOEXEC: /usr/sbin/auditctl -s",
+					RuleIDs:         []string{"SUDO-CMD-002", "SUDO-CMD-003", "SUDO-CMD-004", "SUDO-CMD-006", "SUDO-CMD-014"},
 					ComplianceTags:  []string{"ANSSI-BP-028 R43"},
 					TemplateAnchor:  "tpl-sudoers-baseline",
 				},
@@ -334,7 +337,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					VerbatimQuote:  "CIS 5.2.3 - Ensure sudo log file exists: 'The Defaults logfile entry sets the path to the sudo log file. Setting a path turns on logging to a file; negating this option turns it off. By default, sudo logs via syslog.' Rationale: 'Defining a dedicated log file for sudo simplifies auditing of sudo commands and creation of auditd rules for sudo.' Remediation example: 'Defaults logfile=\"/var/log/sudo.log\"'. Note: log_input and log_output are defense-in-depth additions; they are not part of this CIS control.",
 					Rationale:      "A dedicated sudo log file simplifies auditing of privileged commands and the creation of auditd rules for sudo; without it, sudo activity is only available through syslog.",
 					DirectivesCode: "Defaults logfile=\"/var/log/sudo.log\"",
-					RuleIDs:        []string{},
+					RuleIDs:        []string{"SUDO-DEF-017"},
 					ComplianceTags: []string{"CIS-5.2.3"},
 					TemplateAnchor: "tpl-sudoers-baseline",
 				},
@@ -348,8 +351,8 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					CitationURL:    "https://www.cisecurity.org/cis-benchmarks",
 					VerbatimQuote:  "CIS 5.2.4 - Ensure users must provide password for escalation: 'The operating system must be configured so that users must provide a password for privilege escalation.' Audit: 'Verify the operating system requires users to supply a password for privilege escalation. Check the configuration of the /etc/sudoers and /etc/sudoers.d/* files with the following command: # grep -r \"^[^#].*NOPASSWD\" /etc/sudoers*'. Remediation: 'Remove any line with occurrences of NOPASSWD tags in the file.'",
 					Rationale:      "Without re-authentication, users may access resources or perform tasks for which they do not have authorization. When operating systems provide the capability to escalate a functional capability, it is critical the user re-authenticate.",
-					DirectivesCode: "Defaults authenticate\n# Always require PASSWD on User_Spec rules:\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
-					RuleIDs:        []string{"SUDO-CMD-003", "SUDO-CMD-005"},
+					DirectivesCode: "Defaults authenticate\n# Always require PASSWD on User_Spec rules:\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
+					RuleIDs:        []string{"SUDO-CMD-003", "SUDO-CMD-005", "SUDO-CMD-014"},
 					ComplianceTags: []string{"CIS-5.2.4"},
 					TemplateAnchor: "tpl-sudoers-baseline",
 				},
@@ -419,8 +422,8 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					CitationURL:    "https://public.cyber.mil/stigs/",
 					VerbatimQuote:  "RHEL 8 STIG, SV-230271 (RHEL-08-010380): 'RHEL 8 must require users to provide a password for privilege escalation.' SV-230272 (RHEL-08-010381): 'RHEL 8 must require users to reauthenticate for privilege escalation.' SV-237643 (RHEL-08-010383): 'RHEL 8 must require re-authentication when using the \"sudo\" command.' Fix text: 'Configure the \"sudo\" command to require re-authentication. Edit the /etc/sudoers file: Add or modify the following line: Defaults timestamp_timeout=[value] Note: The \"[value]\" must be a number that is greater than or equal to \"0\".' Equivalent findings: RHEL 9 STIG V-258084 and RHEL-09-611085; Ubuntu 24.04 LTS STIG V-270707.",
 					Rationale:      "Without mandatory password verification and a bounded credential cache, any compromise of an unprivileged process allows silent, unauthenticated execution of administrative commands across sessions.",
-					DirectivesCode: "Defaults authenticate\nDefaults timestamp_timeout=5",
-					RuleIDs:        []string{"SUDO-DEF-012", "SUDO-DEF-015", "SUDO-CMD-003", "SUDO-CMD-005"},
+					DirectivesCode: "Defaults authenticate\nDefaults !rootpw, !targetpw, !runaspw\nDefaults timestamp_timeout=5",
+					RuleIDs:        []string{"SUDO-DEF-012", "SUDO-DEF-015", "SUDO-DEF-018", "SUDO-CMD-003", "SUDO-CMD-005"},
 					ComplianceTags: []string{},
 					TemplateAnchor: "tpl-sudoers-baseline",
 				},
@@ -460,7 +463,7 @@ func buildFrameworkCatalog(findings []htmlFindingView) ([]FrameworkCatalogGroup,
 					CitationURL:    "https://attack.mitre.org/techniques/T1548/003/",
 					VerbatimQuote:  "MITRE ATT&CK T1548.003: Adversaries may perform sudo caching and/or use the sudoers file to elevate privileges. Adversaries may abuse poor sudoers configurations (such as NOPASSWD, wildcards, missing argument restrictions, or GTFObins-capable binaries with shell, command, file-read, file-write, or library-load capabilities) to spawn elevated shells or modify system files.\n\nMitigations (M1026 Privileged Account Management, M1028 Operating System Configuration, M1038 Execution Prevention): Restrict sudoers rules to explicit fixed-argument commands, enforce NOEXEC to block child process execution, and replace direct access to interpreters/editors/pagers/archivers with root-owned wrapper scripts pinned by SHA-256 digest.",
 					Rationale:      "Hundreds of standard Unix utilities (find, vim, less, awk, python, tar, journalctl, systemctl, etc.) include legitimate features to execute subshells, load shared libraries, or read/write arbitrary files. Note that NOEXEC only mitigates child process execution ('shell' and 'command' functions) and does NOT prevent 'file-read', 'file-write', or 'library-load' GTFObins vectors.",
-					DirectivesCode: "# 1. Enforce global NOEXEC and PTY isolation:\nDefaults noexec, use_pty, requiretty\n\n# 2. Replace GTFObins binaries with fixed-argument root-owned wrapper scripts pinned by SHA-256:\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: \\\n    sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 \\\n    /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
+					DirectivesCode: "# 1. Enforce global NOEXEC and PTY isolation:\nDefaults noexec, use_pty, requiretty\n\n# 2. Replace GTFObins binaries with fixed-argument root-owned wrapper scripts pinned by SHA-256\n# (ANSSI BP-028 R41: shell wrappers executing external binaries require EXEC: to override global Defaults noexec):\nWEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: \\\n    sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 \\\n    /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh \"\"",
 					RuleIDs:        []string{"SUDO-GTFO-001", "SUDO-GTFO-002", "SUDO-GTFO-003"},
 					ComplianceTags: []string{"MITRE-T1548.003"},
 					TemplateAnchor: "tpl-wrapper-script",
@@ -565,9 +568,11 @@ func buildHardenedTemplateSections() []HardenedTemplateSection {
 				"SUDO-DEF-005", "SUDO-DEF-006", "SUDO-DEF-007", "SUDO-DEF-008",
 				"SUDO-DEF-009", "SUDO-DEF-010", "SUDO-DEF-011", "SUDO-DEF-012",
 				"SUDO-DEF-013", "SUDO-DEF-014", "SUDO-DEF-015", "SUDO-DEF-016",
+				"SUDO-DEF-017", "SUDO-DEF-018",
 				"SUDO-CMD-001", "SUDO-CMD-002", "SUDO-CMD-003", "SUDO-CMD-004",
 				"SUDO-CMD-005", "SUDO-CMD-006", "SUDO-CMD-007", "SUDO-CMD-008",
 				"SUDO-CMD-009", "SUDO-CMD-010", "SUDO-CMD-011", "SUDO-CMD-012",
+				"SUDO-CMD-013", "SUDO-CMD-014",
 			},
 		},
 		{
@@ -589,8 +594,9 @@ Runas_Alias APP_USER      = appservice
 # Scoped Defaults for APP_DEPLOYERS: tighten credential timeout to 0 (always prompt)
 Defaults:APP_DEPLOYERS timestamp_timeout=0, passwd_timeout=1, use_pty, noexec
 
-# Allow running the root-owned deployment wrapper as 'appservice' with a fixed working directory:
-APP_DEPLOYERS APP_NODES = (APP_USER) CWD=/opt/app PASSWD: NOEXEC: \
+# Allow running the root-owned deployment wrapper as 'appservice' with a fixed working directory
+# (ANSSI BP-028 R41: shell wrappers executing external binaries require EXEC: to override global Defaults noexec):
+APP_DEPLOYERS APP_NODES = (APP_USER) CWD=/opt/app PASSWD: EXEC: \
     sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 \
     /usr/local/sbin/sudo-wrappers/deploy-release.sh --env=production
 
@@ -612,7 +618,8 @@ APP_DEPLOYERS APP_NODES = (APP_USER) PASSWD: \
 			FilePath:    "/usr/local/sbin/sudo-wrappers/reload-nginx-config.sh (mode 0750, owner root:root)",
 			Description: "When operators need to run utilities listed in GTFObins (such as find, tar, journalctl, docker, or scripts with variable parameters), wrap the logic inside a root-owned script with strict input validation, zero arguments (or an allowlisted enum), and pin its SHA-256 hash in sudoers.",
 			Code: strings.TrimSpace(`
-#!/usr/bin/env -S bash -euo pipefail
+#!/bin/bash
+set -euo pipefail
 # ==============================================================================
 # /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh
 # Owner: root:root | Permissions: 0750
@@ -703,23 +710,33 @@ func buildTraceabilityMatrix() []TraceabilityRow {
 		{RuleID: "SUDO-DEF-014", Domain: "Defaults", Severity: audit.SeverityHigh, Title: "Insecure sudoedit Symlink or Directory Configuration", Frameworks: []string{}, Directive: `Defaults !sudoedit_follow, sudoedit_checkdir`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-DEF-015", Domain: "Defaults", Severity: audit.SeverityMedium, Title: "Weak Credential Cache Timeout or Global Ticket Scope", Frameworks: []string{"CIS-5.2.6", "DISA-STIG"}, Directive: `Defaults passwd_timeout=1, timestamp_timeout=5, timestamp_type=tty`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-DEF-016", Domain: "Defaults", Severity: audit.SeverityHigh, Title: "Deprecated Chroot (runchroot) or Unrestricted Working Directory (runcwd=*)", Frameworks: []string{}, Directive: `# Omit runchroot and runcwd=* from Defaults`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-DEF-017", Domain: "Defaults", Severity: audit.SeverityLow, Title: "Missing or Disabled Sudo Log File (logfile)", Frameworks: []string{"CIS-5.2.3"}, Directive: `Defaults logfile="/var/log/sudo.log"`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-DEF-018", Domain: "Defaults", Severity: audit.SeverityMedium, Title: "Shared Target Password Authentication Enabled (rootpw/targetpw/runaspw)", Frameworks: []string{"DISA-STIG"}, Directive: `Defaults !rootpw, !targetpw, !runaspw`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-001", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Negated Command Policy (!command)", Frameworks: []string{"ANSSI-BP-028 R42"}, Directive: `# Use positive command allowlists without '!'`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-002", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Unrestricted ALL Commands Allowed", Frameworks: []string{"ANSSI-BP-028 R43"}, Directive: `# Scope rules to explicit binaries and arguments instead of ALL`, SectionID: "tpl-sudoers-baseline"},
-		{RuleID: "SUDO-CMD-003", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "Passwordless Full Root Privileges (NOPASSWD: ALL)", Frameworks: []string{"ANSSI-BP-028 R43", "CIS-5.2.4", "DISA-STIG"}, Directive: `WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: NOEXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-CMD-003", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "Passwordless Full Root Privileges (NOPASSWD: ALL)", Frameworks: []string{"ANSSI-BP-028 R43", "CIS-5.2.4", "DISA-STIG"}, Directive: `WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: EXEC: /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-004", Domain: "Command Rule", Severity: audit.SeverityMedium, Title: "Wildcard (*) in Command or Arguments", Frameworks: []string{"ANSSI-BP-028 R43"}, Directive: `# Enumerate exact arguments or delegate to a fixed-argument wrapper script`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-CMD-005", Domain: "Command Rule", Severity: audit.SeverityLow, Title: "Passwordless Specific Command Execution (NOPASSWD)", Frameworks: []string{"CIS-5.2.4", "DISA-STIG"}, Directive: `PASSWD: NOEXEC: /usr/sbin/auditctl -s`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-006", Domain: "Command Rule", Severity: audit.SeverityMedium, Title: "Missing Command Argument Restrictions", Frameworks: []string{"ANSSI-BP-028 R43"}, Directive: `/usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-007", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Direct Text Editor Execution via Sudo", Frameworks: []string{"ANSSI-BP-028 R44"}, Directive: `WEB_OPERATORS PROD_WEB_SERVERS = (WEB_SVC_USER) PASSWD: sudoedit /etc/nginx/conf.d/app-vhost.conf`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-008", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Negated User, Host, or Runas Specification", Frameworks: []string{"ANSSI-BP-028 R42"}, Directive: `User_Alias WEB_OPERATORS = %sudo_webops` + "\n" + `Runas_Alias WEB_SVC_USER = www-data`, SectionID: "tpl-sudoers-baseline"},
-		{RuleID: "SUDO-CMD-009", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Dangerous Per-Command Tag (SETENV, FOLLOW, CHROOT, CWD=*)", Frameworks: []string{}, Directive: `APP_DEPLOYERS APP_NODES = (APP_USER) CWD=/opt/app PASSWD: NOEXEC: ...`, SectionID: "tpl-dropin-example"},
+		{RuleID: "SUDO-CMD-009", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Dangerous Per-Command Tag (SETENV, FOLLOW, CHROOT, CWD=*)", Frameworks: []string{}, Directive: `APP_DEPLOYERS APP_NODES = (APP_USER) CWD=/opt/app PASSWD: EXEC: ...`, SectionID: "tpl-dropin-example"},
 		{RuleID: "SUDO-CMD-010", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "sudoedit Permitted on Sensitive System File", Frameworks: []string{}, Directive: `sudoedit /etc/nginx/conf.d/app-vhost.conf`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-011", Domain: "Command Rule", Severity: audit.SeverityCritical, Title: "Relative or Temporary/Writable Command Path", Frameworks: []string{}, Directive: `/usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-CMD-012", Domain: "Command Rule", Severity: audit.SeverityLow, Title: "Weak Cryptographic Digest on Command (SHA-224)", Frameworks: []string{}, Directive: `sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 /usr/local/sbin/...`, SectionID: "tpl-sudoers-baseline"},
 		{RuleID: "SUDO-CMD-013", Domain: "Command Rule", Severity: audit.SeverityInfo, Title: "Missing or Incomplete SELinux Context Elevation on Administrator Rule (TYPE/ROLE)", Frameworks: []string{"DISA-STIG"}, Directive: `%sudo_admins ALL=(ALL) TYPE=sysadm_t ROLE=sysadm_r ALL`, SectionID: "tpl-sudoers-baseline"},
-		{RuleID: "SUDO-GTFO-001", Domain: "GTFObins", Severity: audit.SeverityHigh, Title: "Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: NOEXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
-		{RuleID: "SUDO-GTFO-002", Domain: "GTFObins", Severity: audit.SeverityCritical, Title: "Passwordless Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: NOEXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
+		{RuleID: "SUDO-CMD-014", Domain: "Command Rule", Severity: audit.SeverityHigh, Title: "Directory Execution Permitted in Sudoers", Frameworks: []string{"ANSSI-BP-028 R43", "CIS-5.2.4"}, Directive: `# Replace directory rules (/usr/bin/) with explicit binary paths and pinned arguments`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-CMD-015", Domain: "Command Rule", Severity: audit.SeverityMedium, Title: "Shadowed or Overridden Sudoers Rule", Frameworks: []string{}, Directive: `# Consolidate overlapping rules into a single explicit unambiguous User_Spec`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-CMD-016", Domain: "Command Rule", Severity: audit.SeverityLow, Title: "Expired or Inverted Sudoers Validity Window (NOTBEFORE/NOTAFTER)", Frameworks: []string{}, Directive: `# Remove expired NOTAFTER rules or ensure NOTBEFORE <= NOTAFTER (YYYYMMDDHHMMSSZ)`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-GTFO-001", Domain: "GTFObins", Severity: audit.SeverityHigh, Title: "Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: EXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
+		{RuleID: "SUDO-GTFO-002", Domain: "GTFObins", Severity: audit.SeverityCritical, Title: "Passwordless Permitted Binary in GTFObins Catalog", Frameworks: []string{"ANSSI-BP-028 R41", "MITRE-T1548.003"}, Directive: `PASSWD: EXEC: sha256:<digest> /usr/local/sbin/sudo-wrappers/reload-nginx-config.sh ""`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-GTFO-003", Domain: "GTFObins", Severity: audit.SeverityLow, Title: "Mitigated GTFObins Binary (NOEXEC on shell/command)", Frameworks: []string{"ANSSI-BP-028 R39", "MITRE-T1548.003"}, Directive: `# Replace direct GTFObins binary with dedicated root-owned wrapper script`, SectionID: "tpl-wrapper-script"},
 		{RuleID: "SUDO-SYS-PERM-002..013", Domain: "System Host", Severity: audit.SeverityCritical, Title: "Sudoers, Drop-In, Sudo Binary & Target Binary Permissions", Frameworks: []string{"ANSSI-BP-028 R38"}, Directive: `sudo chown root:root /etc/sudoers && sudo chmod 0440 /etc/sudoers`, SectionID: "tpl-filesystem-perms"},
+		{RuleID: "SUDO-SYS-PERM-014", Domain: "System Host", Severity: audit.SeverityInfo, Title: "Sudo Binary Not Restricted to Dedicated Group", Frameworks: []string{"ANSSI-BP-028 R38"}, Directive: `sudo groupadd sudogrp && sudo chown root:sudogrp /usr/bin/sudo && sudo chmod 4750 /usr/bin/sudo`, SectionID: "tpl-filesystem-perms"},
+		{RuleID: "SUDO-SYS-ID-001", Domain: "System Host", Severity: audit.SeverityLow, Title: "Nonexistent or Orphaned User/Group Referenced in Sudoers", Frameworks: []string{}, Directive: `# Remove orphaned principals via visudo or provision the missing account`, SectionID: "tpl-sudoers-baseline"},
+		{RuleID: "SUDO-SYS-SCRIPT-001", Domain: "System Host", Severity: audit.SeverityHigh, Title: "Privileged Wrapper Script Uses Unsafe PATH or env Shebang", Frameworks: []string{}, Directive: `#!/bin/bash` + "\n" + `export PATH="/usr/sbin:/usr/bin:/sbin:/bin"`, SectionID: "tpl-wrapper-script"},
+		{RuleID: "SUDO-SYS-SCRIPT-002", Domain: "System Host", Severity: audit.SeverityCritical, Title: "Privileged Wrapper Script Argument Injection Sink", Frameworks: []string{}, Directive: `if [[ "$#" -ne 0 ]]; then exit 2; fi # or validate "$1" via strict case allowlist`, SectionID: "tpl-wrapper-script"},
+		{RuleID: "SUDO-SYS-SCRIPT-003", Domain: "System Host", Severity: audit.SeverityHigh, Title: "Privileged Wrapper Script Sources Untrusted Path or Interpreter", Frameworks: []string{}, Directive: `# Use root-owned interpreter (0755) and source only root-owned files under /etc/`, SectionID: "tpl-wrapper-script"},
 	}
 
 	for i := range rows {
