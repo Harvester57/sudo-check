@@ -65,6 +65,10 @@ func (w *Wrapper) ConvertPolicy(sudoersPath string) (*audit.SudoersPolicy, error
 		return nil, fmt.Errorf("failed to execute cvtsudoers: %w (stderr: %s)", err, stderr.String())
 	}
 
+	if len(bytes.TrimSpace(stdout.Bytes())) == 0 {
+		return &audit.SudoersPolicy{}, nil
+	}
+
 	var policy audit.SudoersPolicy
 	if err := json.Unmarshal(stdout.Bytes(), &policy); err != nil {
 		return nil, fmt.Errorf("failed to parse cvtsudoers JSON output: %w", err)

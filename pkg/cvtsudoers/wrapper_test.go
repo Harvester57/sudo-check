@@ -114,3 +114,53 @@ func TestConvertPolicy_ValidAndInvalidJSON(t *testing.T) {
 		t.Fatal("expected JSON unmarshal error from invalid output")
 	}
 }
+
+func TestConvertPolicy_EmptyOutput(t *testing.T) {
+	dir := t.TempDir()
+	var emptyBin, whitespaceBin string
+	if runtime.GOOS == "windows" {
+		emptyBin = filepath.Join(dir, "empty.bat")
+		if err := os.WriteFile(emptyBin, []byte("@echo off\r\n"), 0755); err != nil {
+			t.Fatalf("failed to write empty.bat: %v", err)
+		}
+		whitespaceBin = filepath.Join(dir, "whitespace.bat")
+		if err := os.WriteFile(whitespaceBin, []byte("@echo off\r\necho.   \r\n"), 0755); err != nil {
+			t.Fatalf("failed to write whitespace.bat: %v", err)
+		}
+	} else {
+		emptyBin = filepath.Join(dir, "empty.sh")
+		if err := os.WriteFile(emptyBin, []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatalf("failed to write empty.sh: %v", err)
+		}
+		whitespaceBin = filepath.Join(dir, "whitespace.sh")
+		if err := os.WriteFile(whitespaceBin, []byte("#!/bin/sh\nprintf '   \\n\\t \\n'\n"), 0755); err != nil {
+			t.Fatalf("failed to write whitespace.sh: %v", err)
+		}
+	}
+
+	cases := []struct {
+		name string
+		bin  string
+	}{
+		{"ZeroBytes", emptyBin},
+		{"WhitespaceOnly", whitespaceBin},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := &Wrapper{binaryPath: tc.bin}
+			policy, err := w.ConvertPolicy("/etc/sudoers")
+			if err != nil {
+				t.Fatalf("expected nil error for %s output, got: %v", tc.name, err)
+			}
+			if policy == nil {
+				t.Fatalf("expected non-nil empty SudoersPolicy for %s output", tc.name)
+			}
+			if len(policy.Defaults) != 0 || len(policy.UserSpecs) != 0 ||
+				len(policy.UserAliases) != 0 || len(policy.RunasAliases) != 0 ||
+				len(policy.HostAliases) != 0 || len(policy.CommandAliases) != 0 {
+				t.Errorf("expected empty SudoersPolicy, got: %+v", policy)
+			}
+		})
+	}
+}
