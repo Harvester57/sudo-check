@@ -63,11 +63,12 @@ jobs:
       - name: Ensure cvtsudoers Oracle Is Available
         if: matrix.os == 'ubuntu-latest'
         run: |
-          if ! command -v cvtsudoers >/dev/null 2>&1; then
+          if ! command -v cvtsudoers >/dev/null 2>&1 && ! command -v cvtsudoers.ws >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y sudo
           fi
-          cvtsudoers -V
+          CVT_BIN="$(command -v cvtsudoers || command -v cvtsudoers.ws)"
+          "${CVT_BIN}" -V
 
       - name: Run Unit Tests and Oracle Parity Suite (Linux)
         if: matrix.os == 'ubuntu-latest'

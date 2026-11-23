@@ -537,9 +537,10 @@ func TestParseErrors(t *testing.T) {
 
 // cvtsudoersOracleConfig captures how the cvtsudoers oracle binary is invoked.
 type cvtsudoersOracleConfig struct {
-	resolved bool
-	useWSL   bool
-	binPath  string
+	resolved   bool
+	useWSL     bool
+	binPath    string
+	wslCvtPath string
 }
 
 var (
@@ -551,15 +552,25 @@ var (
 // safe for concurrent parallel subtests.
 func resolveCvtsudoersOracle() {
 	cvtResolveOnce.Do(func() {
-		if path, err := exec.LookPath("cvtsudoers"); err == nil {
-			cvtOracle = cvtsudoersOracleConfig{resolved: true, binPath: path}
-			return
+		for _, name := range []string{"cvtsudoers", "cvtsudoers.ws"} {
+			if path, err := exec.LookPath(name); err == nil {
+				cvtOracle = cvtsudoersOracleConfig{resolved: true, binPath: path}
+				return
+			}
 		}
 		if runtime.GOOS == "windows" {
 			if wslPath, err := exec.LookPath("wsl"); err == nil {
-				checkCmd := exec.Command(wslPath, "/usr/bin/cvtsudoers", "--version")
-				if err := checkCmd.Run(); err == nil {
-					cvtOracle = cvtsudoersOracleConfig{resolved: true, useWSL: true, binPath: wslPath}
+				for _, wslCvt := range []string{"/usr/bin/cvtsudoers", "/usr/bin/cvtsudoers.ws"} {
+					checkCmd := exec.Command(wslPath, wslCvt, "--version")
+					if err := checkCmd.Run(); err == nil {
+						cvtOracle = cvtsudoersOracleConfig{
+							resolved:   true,
+							useWSL:     true,
+							binPath:    wslPath,
+							wslCvtPath: wslCvt,
+						}
+						return
+					}
 				}
 			}
 		}
@@ -581,7 +592,7 @@ func runCvtsudoersOracle(t *testing.T, sudoersInput string) *audit.SudoersPolicy
 
 	var cmd *exec.Cmd
 	if cvtOracle.useWSL {
-		cmd = exec.Command(cvtOracle.binPath, "/usr/bin/cvtsudoers", "-f", "json")
+		cmd = exec.Command(cvtOracle.binPath, cvtOracle.wslCvtPath, "-f", "json")
 	} else {
 		cmd = exec.Command(cvtOracle.binPath, "-f", "json")
 	}
@@ -617,7 +628,68 @@ func normalizePolicyViaJSON(t *testing.T, p *audit.SudoersPolicy) *audit.Sudoers
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("Failed to unmarshal policy: %v", err)
 	}
+	normalizeUnresolvedAliases(&out)
 	return &out
+}
+
+// normalizeUnresolvedAliases harmonizes unresolved alias members between cvtsudoers <= 1.9.15p5
+// (which emits *alias keys) and cvtsudoers >= 1.9.16 / 1.9.17p2 (which falls back to
+// username/hostname/usergroup when the alias is not defined in the policy).
+func normalizeUnresolvedAliases(p *audit.SudoersPolicy) {
+	normMember := func(m *audit.Member, isRunasGroup bool) {
+		if m.UserAlias != "" && p.UserAliases[m.UserAlias] == nil {
+			m.Username = m.UserAlias
+			m.UserAlias = ""
+		}
+		if m.HostAlias != "" && p.HostAliases[m.HostAlias] == nil {
+			m.Hostname = m.HostAlias
+			m.HostAlias = ""
+		}
+		if m.RunasAlias != "" && p.RunasAliases[m.RunasAlias] == nil {
+			if isRunasGroup {
+				m.Usergroup = m.RunasAlias
+			} else {
+				m.Username = m.RunasAlias
+			}
+			m.RunasAlias = ""
+		}
+	}
+	for i := range p.Defaults {
+		for j := range p.Defaults[i].Binding {
+			normMember(&p.Defaults[i].Binding[j], false)
+		}
+	}
+	for i := range p.UserSpecs {
+		for j := range p.UserSpecs[i].UserList {
+			normMember(&p.UserSpecs[i].UserList[j], false)
+		}
+		for j := range p.UserSpecs[i].HostList {
+			normMember(&p.UserSpecs[i].HostList[j], false)
+		}
+		for j := range p.UserSpecs[i].CmndSpecs {
+			for k := range p.UserSpecs[i].CmndSpecs[j].RunasUsers {
+				normMember(&p.UserSpecs[i].CmndSpecs[j].RunasUsers[k], false)
+			}
+			for k := range p.UserSpecs[i].CmndSpecs[j].RunasGroups {
+				normMember(&p.UserSpecs[i].CmndSpecs[j].RunasGroups[k], true)
+			}
+		}
+	}
+	for _, members := range p.UserAliases {
+		for i := range members {
+			normMember(&members[i], false)
+		}
+	}
+	for _, members := range p.HostAliases {
+		for i := range members {
+			normMember(&members[i], false)
+		}
+	}
+	for _, members := range p.RunasAliases {
+		for i := range members {
+			normMember(&members[i], false)
+		}
+	}
 }
 
 func stripFindingLines(findings []audit.Finding) []audit.Finding {

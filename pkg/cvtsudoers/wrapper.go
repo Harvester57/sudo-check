@@ -24,19 +24,24 @@ func NewWrapper(customPath string) (*Wrapper, error) {
 		return &Wrapper{binaryPath: customPath}, nil
 	}
 
-	// Search PATH
-	path, err := exec.LookPath("cvtsudoers")
-	if err == nil {
-		return &Wrapper{binaryPath: path}, nil
+	// Search PATH (including Ubuntu 26.04+ .ws-suffixed classic sudo binaries)
+	for _, name := range []string{"cvtsudoers", "cvtsudoers.ws"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return &Wrapper{binaryPath: path}, nil
+		}
 	}
 
 	// Search common paths (Unix only)
 	if runtime.GOOS != "windows" {
 		commonPaths := []string{
 			"/usr/bin/cvtsudoers",
+			"/usr/bin/cvtsudoers.ws",
 			"/usr/sbin/cvtsudoers",
+			"/usr/sbin/cvtsudoers.ws",
 			"/usr/local/bin/cvtsudoers",
+			"/usr/local/bin/cvtsudoers.ws",
 			"/usr/local/sbin/cvtsudoers",
+			"/usr/local/sbin/cvtsudoers.ws",
 		}
 		for _, p := range commonPaths {
 			if _, err := os.Stat(p); err == nil {
