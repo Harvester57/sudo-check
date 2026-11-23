@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-23
+
 ### Added
 - **New CLI Commands (`explain`, `diff`, `merge`)**: Simulate `sudoers(5)` policy evaluation for a target principal, diff policies or JSON reports by finding fingerprint, and aggregate multi-host reports into fleet HTML, CSV, and JSON summaries.
 - **Additional Input Formats**: Added `sudo -ll`/`sudo -l` and RFC 2849 LDIF (`sudoRole`) parsers with automatic format detection and stdin (`-`) support.
@@ -72,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Initial Release**: Core `sudo-check` CLI (`scan`, `system`, `update-db`, `version`) with `cvtsudoers` JSON policy auditing, embedded GTFObins detection, and Text, JSON, SARIF, HTML, and PDF report exporters.
 
+[Unreleased]: https://github.com/Harvester57/sudo-check/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Harvester57/sudo-check/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Harvester57/sudo-check/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Harvester57/sudo-check/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Harvester57/sudo-check/compare/v0.0.2...v0.1.0
