@@ -64,6 +64,6 @@ Direct and indirect Go module dependencies declared in [go.mod](./go.mod):
 | :--- | :--- | :--- |
 | `github.com/go-pdf/fpdf` | `v0.9.0` | MIT License |
 | `github.com/spf13/cobra` | `v1.10.2` | Apache License 2.0 |
-| `github.com/spf13/pflag` | `v1.0.10` | BSD-3-Clause License |
+| `github.com/spf13/pflag` | `v1.1.0` | BSD-3-Clause License |
 | `github.com/inconshreveable/mousetrap` | `v1.1.0` | Apache License 2.0 |
 | `go.yaml.in/yaml/v3` | `v3.0.6` | MIT License / Apache License 2.0 |

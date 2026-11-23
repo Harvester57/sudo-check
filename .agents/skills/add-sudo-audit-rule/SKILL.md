@@ -13,9 +13,10 @@ evaluation semantics, SARIF rule descriptors, or cross-platform tests.
 
 ## 1. Assign Rule ID & Metadata
 - **Defaults rules**: `SUDO-DEF-XXX` in `pkg/audit/rules_defaults.go`
-- **Command rules**: `SUDO-CMD-XXX` in `pkg/audit/rules_commands.go`
+- **Command rules**: `SUDO-CMD-XXX` in `pkg/audit/rules_commands.go` (or `pkg/audit/rules_shadowing.go` for shadowing/expiry checks)
 - **GTFObins rules**: `SUDO-GTFO-XXX` in `pkg/audit/rules_commands.go`
-- **System permission rules**: `SUDO-SYS-PERM-XXX` in `pkg/audit/rules_system.go`
+- **System permission rules**: `SUDO-SYS-PERM-XXX` in `pkg/audit/rules_system.go` (or `pkg/audit/system_host.go` for host/group checks)
+- **System identity & wrapper script rules**: `SUDO-SYS-ID-XXX` in `pkg/audit/system_host.go` and `SUDO-SYS-SCRIPT-XXX` in `pkg/audit/script_audit.go`
 - **System CVE rules**: `CVE-YYYY-NNNNN` in `pkg/audit/rules_system.go`
 - Populate `Compliance` with applicable `ANSSI-BP-028` and `CIS` benchmark IDs.
   When citing ANSSI BP-028, verify the exact recommendation number against the

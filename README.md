@@ -73,13 +73,19 @@ CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o sudo-check
 ```
 
 ### Docker
-Build the rootless static container image using [Dockerfile](./Dockerfile):
+Prebuilt rootless multi-arch images (`linux/amd64`, `linux/arm64`) with SLSA build provenance and SPDX SBOM attestations are published to GitHub Container Registry (`ghcr.io/harvester57/sudo-check`):
 ```bash
-docker build -t sudo-check:local .
+docker run --rm -v "$(pwd):/workspace:ro" ghcr.io/harvester57/sudo-check:main scan /workspace/sudoers --no-color -f text
 ```
 
-Scan a local `sudoers` file or policy directory mounted read-only:
+Verify image attestations with the GitHub CLI:
 ```bash
+gh attestation verify oci://ghcr.io/harvester57/sudo-check:main --owner Harvester57
+```
+
+Or build the image locally using [Dockerfile](./Dockerfile):
+```bash
+docker build -t sudo-check:local .
 docker run --rm -v "$(pwd):/workspace:ro" sudo-check:local scan /workspace/sudoers --no-color -f text
 ```
 
