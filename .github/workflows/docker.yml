@@ -1,0 +1,240 @@
+name: Docker Build and Publish
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-and-scan:
+    name: Build, Smoke Test, and Scan Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compute Build Metadata
+        id: vars
+        run: |
+          {
+            echo "version=${GITHUB_REF_NAME:-dev}"
+            echo "commit=${GITHUB_SHA::8}"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan Dockerfile for Misconfigurations (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'config'
+          scan-ref: 'Dockerfile'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build Local Image for Scanning
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: sudo-check:ci-scan
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+            COMMIT=${{ steps.vars.outputs.commit }}
+            DATE=${{ steps.vars.outputs.date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke Test Container Image
+        run: |
+          docker run --rm sudo-check:ci-scan version
+          docker run --rm -v "${PWD}/testdata/corpus/distros:/work:ro" \
+            sudo-check:ci-scan scan /work/archlinux_sudoers.sudoers -f json >/dev/null
+
+      - name: Generate Container Image SBOM (SPDX)
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: sudo-check:ci-scan
+          format: spdx-json
+          output-file: sudo-check-image.spdx.json
+          upload-artifact: false
+
+      - name: Upload PR Image SBOM Artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: container-sbom-spdx
+          path: sudo-check-image.spdx.json
+          retention-days: 5
+
+      - name: Scan Container Image for Vulnerabilities (SARIF)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'sudo-check:ci-scan'
+          format: 'sarif'
+          output: 'trivy-image-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Upload Trivy Scan Results to GitHub Security Tab
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+          category: 'trivy-container-image'
+
+      - name: Enforce Container Vulnerability Gate (CRITICAL/HIGH)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'sudo-check:ci-scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+
+  publish:
+    name: Build, Push, and Attest Multi-Arch Image
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compute Image Name and Build Metadata
+        id: vars
+        run: |
+          {
+            echo "image_name=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
+            echo "version=${GITHUB_REF_NAME:-dev}"
+            echo "commit=${GITHUB_SHA::8}"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker Metadata (Tags and OCI Labels)
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=sha-
+
+      - name: Build and Push Multi-Arch Image with Provenance and SBOM
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+            COMMIT=${{ steps.vars.outputs.commit }}
+            DATE=${{ steps.vars.outputs.date }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate SPDX SBOM for Published Image Digest
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sudo-check-published.spdx.json
+          upload-artifact: false
+
+      - name: Attest Build Provenance (SLSA)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Image SBOM (SPDX)
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: sudo-check-published.spdx.json
+          push-to-registry: true
+
+      - name: Upload Published Image SBOM Artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: published-container-sbom-spdx
+          path: sudo-check-published.spdx.json
+          retention-days: 30
+
+      - name: Publish Image Summary
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ steps.vars.outputs.image_name }}@${{ steps.build.outputs.digest }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          {
+            echo "### Published Container Image"
+            echo ""
+            echo "- **Digest**: \`${IMAGE_REF}\`"
+            echo "- **Platforms**: \`linux/amd64\`, \`linux/arm64\`"
+            echo "- **Attestations**: SLSA Build Provenance + SPDX SBOM (OCI & GitHub Attestations)"
+            echo ""
+            echo "#### Tags"
+            echo '```text'
+            echo "${IMAGE_TAGS}"
+            echo '```'
+            echo ""
+            echo "#### Verification"
+            echo '```bash'
+            echo "gh attestation verify oci://${IMAGE_REF} --owner ${REPO_OWNER}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

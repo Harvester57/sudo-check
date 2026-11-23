@@ -1,0 +1,14 @@
+.git
+.github
+.agents
+.godoctor.yaml
+.gitignore
+.gitattributes
+docs
+testdata
+dist
+*.md
+coverage.out
+coverage.txt
+sudo-check
+sudo-check.exe
