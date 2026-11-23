@@ -516,6 +516,14 @@ func (ctx *parseContext) handleInclude(kind string, rawTarget string, baseDir st
 		return nil
 	}
 	target := strings.ReplaceAll(rawTarget, "%h", ctx.hostname)
+	if baseDir == "" {
+		cleanTarget := filepath.ToSlash(filepath.Clean(target))
+		if cleanTarget == "/etc" || strings.HasPrefix(cleanTarget, "/etc/") {
+			// In-memory / stdin parsing without a base directory must not read
+			// the auditor host's live /etc/sudoers* files.
+			return nil
+		}
+	}
 	resolved := resolveIncludePath(target, baseDir)
 
 	isDirDirective := strings.HasSuffix(kind, "includedir")

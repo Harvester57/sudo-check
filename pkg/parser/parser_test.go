@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -479,7 +480,7 @@ func TestIncludedirErrorPropagation(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected permission error from unreadable #includedir, got nil")
 		}
-		if !os.IsPermission(err) {
+		if !errors.Is(err, os.ErrPermission) {
 			t.Errorf("expected permission error, got: %v", err)
 		}
 	})

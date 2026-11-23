@@ -336,6 +336,9 @@ func cleanPatchPath(filePath string) string {
 	if vol := filepath.VolumeName(trimmed); vol != "" {
 		trimmed = strings.TrimPrefix(trimmed, vol)
 	}
+	if len(trimmed) >= 2 && trimmed[1] == ':' && ((trimmed[0] >= 'A' && trimmed[0] <= 'Z') || (trimmed[0] >= 'a' && trimmed[0] <= 'z')) {
+		trimmed = trimmed[2:]
+	}
 	slashed := strings.ReplaceAll(trimmed, "\\", "/")
 	cleaned := path.Clean(slashed)
 	cleaned = strings.TrimLeft(cleaned, "/")
